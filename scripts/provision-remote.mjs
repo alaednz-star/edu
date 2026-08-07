@@ -187,6 +187,20 @@ const created = [];
 const existingProfiles = await rest("profiles?select=id,email");
 const existing = new Map(existingProfiles.map((p) => [p.email, p.id]));
 
+/**
+ * Report a temporary password THE MOMENT its account is created.
+ *
+ * The summary at the end of the run is not sufficient: a failure anywhere after
+ * an account is created -- a missing subject, an unqualified teacher -- exits
+ * before the summary prints, and the password is then unrecoverable, because it
+ * is never stored and the database keeps only a hash. That happened three times
+ * in a row on the first production run.
+ */
+function announce(s) {
+  console.log(`  >>> ${s.role.toUpperCase()}  ${s.email}`);
+  console.log(`  >>> PASSWORD: ${s.password}   (save this now)`);
+}
+
 console.log("Administrators");
 for (const a of ADMINS) {
   if (existing.has(a.email)) {
@@ -197,6 +211,7 @@ for (const a of ADMINS) {
   existing.set(s.email, s.id);
   created.push(s);
   console.log(`  created           ${a.email}`);
+  announce(s);
 }
 
 console.log("\nTeachers");
@@ -226,6 +241,7 @@ for (const t of TEACHERS) {
     existing.set(s.email, s.id);
     created.push({ ...s, subject: t.subjectKey });
     console.log(`  created           ${t.email}  (${t.subjectKey})`);
+    announce(s);
   }
 
   // Reconciled separately from account creation, so it is repaired on a rerun.
