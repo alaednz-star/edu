@@ -201,19 +201,37 @@ for (const a of ADMINS) {
 
 console.log("\nTeachers");
 const subjects = new Map((await rest("subjects?select=id,key")).map((s) => [s.key, s.id]));
-for (const t of TEACHERS) {
-  if (existing.has(t.email)) {
-    console.log(`  exists, skipping  ${t.email}`);
-    continue;
-  }
-  const s = await createStaff({ ...t, experienceYears: 0 });
-  existing.set(s.email, s.id);
-  created.push({ ...s, subject: t.subjectKey });
+// Existing qualifications, so a teacher whose account was created by an earlier
+// run that then failed still gets their `teacher_subjects` row. Resuming on the
+// account alone is not enough: the qualification is written two statements after
+// the account, so a crash in between leaves a teacher who exists but cannot be
+// assigned to a group (`validate_teacher_qualification` rejects it).
+const qualified = new Set(
+  (await rest("teacher_subjects?select=teacher_id,subject_id")).map(
+    (q) => `${q.teacher_id}:${q.subject_id}`,
+  ),
+);
 
+for (const t of TEACHERS) {
   const subjectId = subjects.get(t.subjectKey);
   if (!subjectId) throw new Error(`subject "${t.subjectKey}" not found on this project`);
-  await insert("teacher_subjects", { teacher_id: s.id, subject_id: subjectId });
-  console.log(`  created           ${t.email}  (${t.subjectKey})`);
+
+  let teacherId = existing.get(t.email);
+
+  if (teacherId) {
+    console.log(`  exists, skipping  ${t.email}`);
+  } else {
+    const s = await createStaff({ ...t, experienceYears: 0 });
+    teacherId = s.id;
+    existing.set(s.email, s.id);
+    created.push({ ...s, subject: t.subjectKey });
+    console.log(`  created           ${t.email}  (${t.subjectKey})`);
+  }
+
+  // Reconciled separately from account creation, so it is repaired on a rerun.
+  if (qualified.has(`${teacherId}:${subjectId}`)) continue;
+  await insert("teacher_subjects", { teacher_id: teacherId, subject_id: subjectId });
+  console.log(`  qualified         ${t.email}  (${t.subjectKey})`);
 }
 
 console.log("\nGroups");
