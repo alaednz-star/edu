@@ -129,16 +129,49 @@ const TEACHERS = [
 ];
 
 // One weekly session per group, so UNIQUE (group_id, weekday) holds by
-// construction. BAC preparation maps onto 3ème année secondaire: in the
-// Algerian system the terminal year IS the BAC year.
+// construction.
+//
+// There are no separate "Préparation BAC" groups: in the Algerian system the
+// terminal year (3AS) IS the BAC year, so a BAC-prep group would be the same
+// cohort as its 3AS counterpart -- same subject, same level, same stream --
+// listed twice.
 const GROUPS = [
-  { name: "3AS Sciences - Mathématiques", subject: "mathematics", stream: "sciences", teacher: "boumediene.abidat@gmail.com", weekday: 0, start: "14:00", end: "16:00" },
-  { name: "3AS Mathématiques", subject: "mathematics", stream: "maths", teacher: "boumediene.abidat@gmail.com", weekday: 2, start: "14:00", end: "16:00" },
-  { name: "Préparation BAC - Mathématiques", subject: "mathematics", stream: "sciences", teacher: "boumediene.abidat@gmail.com", weekday: 5, start: "09:00", end: "12:00" },
-  { name: "3AS Sciences - Physique", subject: "physics", stream: "sciences", teacher: "chaouch.habib@gmail.com", weekday: 1, start: "14:00", end: "16:00" },
-  { name: "Préparation BAC - Physique", subject: "physics", stream: "sciences", teacher: "chaouch.habib@gmail.com", weekday: 5, start: "14:00", end: "17:00" },
-  { name: "3AS Sciences - Sciences Naturelles", subject: "natural_sciences", stream: "sciences", teacher: "rachid.berji@gmail.com", weekday: 3, start: "14:00", end: "16:00" },
-  { name: "Préparation BAC - Sciences Naturelles", subject: "natural_sciences", stream: "sciences", teacher: "rachid.berji@gmail.com", weekday: 6, start: "09:00", end: "12:00" },
+  {
+    name: "3AS Mathématiques",
+    subject: "mathematics",
+    stream: "maths",
+    teacher: "boumediene.abidat@gmail.com",
+    weekday: 2,
+    start: "14:00",
+    end: "16:00",
+  },
+  {
+    name: "3AS Sciences - Mathématiques",
+    subject: "mathematics",
+    stream: "sciences",
+    teacher: "boumediene.abidat@gmail.com",
+    weekday: 0,
+    start: "14:00",
+    end: "16:00",
+  },
+  {
+    name: "3AS Sciences - Physique",
+    subject: "physics",
+    stream: "sciences",
+    teacher: "chaouch.habib@gmail.com",
+    weekday: 1,
+    start: "14:00",
+    end: "16:00",
+  },
+  {
+    name: "3AS Sciences - Sciences Naturelles",
+    subject: "natural_sciences",
+    stream: "sciences",
+    teacher: "rachid.berji@gmail.com",
+    weekday: 3,
+    start: "14:00",
+    end: "16:00",
+  },
 ];
 
 const LEVEL_NAME = "3ème année secondaire";

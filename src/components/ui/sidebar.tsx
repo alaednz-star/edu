@@ -322,7 +322,12 @@ const SidebarInset = React.forwardRef<HTMLDivElement, React.ComponentProps<"main
       <main
         ref={ref}
         className={cn(
-          "relative flex w-full flex-1 flex-col bg-background",
+          // `min-w-0` is required, not cosmetic: a flex item defaults to
+          // `min-width: auto`, so it refuses to shrink below its content. A wide
+          // table then stretches this pane, widens the whole row, and the fixed
+          // sidebar scrolls out of view horizontally. The table already scrolls
+          // inside itself; this lets it actually do so.
+          "relative flex w-full min-w-0 flex-1 flex-col bg-background",
           "lg:peer-data-[variant=inset]:m-2 lg:peer-data-[state=collapsed]:peer-data-[variant=inset]:ms-2 lg:peer-data-[variant=inset]:ms-0 lg:peer-data-[variant=inset]:rounded-xl lg:peer-data-[variant=inset]:shadow",
           className,
         )}

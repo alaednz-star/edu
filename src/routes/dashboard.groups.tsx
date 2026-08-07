@@ -262,12 +262,6 @@ function GroupsPage() {
       },
     },
     {
-      key: "price",
-      header: t("form.groups.columnPrice"),
-      sortValue: (g) => g.priceDzd,
-      cell: (g) => <span className="tabular-nums">{g.priceDzd.toLocaleString()} DZD</span>,
-    },
-    {
       key: "schedule",
       header: t("entity.groups.columnSchedule"),
       cell: (g) =>
