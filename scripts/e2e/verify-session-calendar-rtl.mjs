@@ -72,13 +72,19 @@ try {
   const french = await page.getByText(/séances|à pointer seulement|aujourd'hui/i).count();
   check("no leaked French strings in Arabic mode", french === 0, `leaks=${french}`);
 
-  // The calendar grid must scroll inside its own container, never the body.
-  const gridScrolls = await page.evaluate(() => {
-    const el = document.querySelector(".surface-card.overflow-x-auto");
-    if (!el) return false;
-    return getComputedStyle(el).overflowX === "auto";
+  // The grid is FLUID now: seven `minmax(0, 1fr)` tracks that shrink instead of
+  // scrolling. The previous assertion required `overflow-x: auto` on the card,
+  // which was the old horizontal-scroll approach -- that is exactly what was
+  // removed, because it pushed the last column off-screen below 1280px. What
+  // matters instead is that the grid never exceeds its container.
+  const gridFits = await page.evaluate(() => {
+    const grid = document.querySelector('div.grid[style*="repeat(7"]');
+    if (!grid) return null;
+    const card = grid.closest(".surface-card");
+    if (!card) return null;
+    return grid.scrollWidth <= card.clientWidth + 2;
   });
-  check("calendar scrolls inside its own container", gridScrolls);
+  check("calendar grid fits its container without scrolling", gridFits === true, `${gridFits}`);
 
   await page.getByText("e2e-fixture RTL Cal").first().click();
   await page.waitForTimeout(1800);

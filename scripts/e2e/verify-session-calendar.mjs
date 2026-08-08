@@ -143,15 +143,15 @@ try {
   check("today's unmarked sessions are actionable", dueCount > 0);
 
   console.log("\n[4] Week / month navigation");
-  const weekLabel = await page.locator("p.text-base.font-semibold").first().textContent();
+  const weekLabel = await page.locator('[data-testid="period-label"]').first().textContent();
   await page.getByRole("button", { name: /période suivante|next period/i }).click();
   await page.waitForTimeout(1200);
-  const nextLabel = await page.locator("p.text-base.font-semibold").first().textContent();
+  const nextLabel = await page.locator('[data-testid="period-label"]').first().textContent();
   check("next advances the period", weekLabel !== nextLabel, `${weekLabel} -> ${nextLabel}`);
 
   await page.getByRole("button", { name: /^aujourd'hui$|^today$/i }).click();
   await page.waitForTimeout(1200);
-  const backLabel = await page.locator("p.text-base.font-semibold").first().textContent();
+  const backLabel = await page.locator('[data-testid="period-label"]').first().textContent();
   check("Today returns to the current period", backLabel === weekLabel, `${backLabel}`);
 
   await page.getByRole("button", { name: /^mois$|^month$/i }).click();
@@ -166,7 +166,7 @@ try {
   await page.waitForTimeout(1500);
 
   console.log("\n[5] Counters");
-  const counters = await page.locator("p.text-xl.font-semibold.tabular-nums").allTextContents();
+  const counters = await page.locator('[data-testid="counter-value"]').allTextContents();
   check("three counters render", counters.length === 3, JSON.stringify(counters));
   check("total counter is positive", Number(counters[0]) > 0, JSON.stringify(counters));
 

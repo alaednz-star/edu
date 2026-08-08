@@ -13,6 +13,23 @@ export const STATUS_CLASS: Record<SessionStatus, string> = {
 };
 
 /**
+ * Background form of the same tokens, for the status dot.
+ *
+ * State is encoded in shape AND colour: the dot gives the compact month chip a
+ * status signal in ~6px, where a text label would not fit, and it keeps the
+ * status readable independently of the subject colour behind it.
+ */
+export const STATUS_DOT: Record<SessionStatus, string> = {
+  complete: "bg-success",
+  partial: "bg-accent",
+  due: "bg-accent",
+  overdue: "bg-destructive",
+  scheduled: "bg-muted-foreground/45",
+  empty: "bg-muted-foreground/45",
+  cancelled: "bg-muted-foreground/45",
+};
+
+/**
  * The label for a session's status, with counts interpolated where the wording
  * uses them (`complete` and `partial` read "6/14 pointés").
  *

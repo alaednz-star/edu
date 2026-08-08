@@ -307,12 +307,12 @@ function DrawerHeader({
   subjectLabel: (k: string | null | undefined, n?: string | null) => string;
 }) {
   const tint = subjectTint(session.subjectColor, session.subjectKey);
-  const meta = [
-    formatDate(session.date, locale),
-    `${session.startTime} – ${session.endTime}`,
-    session.teacherName,
-    session.room,
-  ].filter(Boolean);
+  // The time range is kept OUT of this joined string and rendered as its own
+  // bidi-isolated element below: "14:00 – 16:00" is direction-neutral, so under
+  // RTL the browser reorders it to "16:00 – 14:00" and states the wrong times.
+  const meta = [formatDate(session.date, locale), session.teacherName, session.room].filter(
+    Boolean,
+  );
 
   return (
     <header className="border-b border-border px-5 py-4" style={{ backgroundColor: tint.tint }}>
@@ -327,7 +327,12 @@ function DrawerHeader({
           <h2 className="mt-1 truncate text-lg font-semibold tracking-tight">
             {session.groupName}
           </h2>
-          <p className="mt-1 text-xs text-muted-foreground">{meta.join(" · ")}</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            <span dir="ltr" style={{ unicodeBidi: "isolate" }} className="tabular-nums">
+              {session.startTime} – {session.endTime}
+            </span>
+            {meta.length > 0 && ` · ${meta.join(" · ")}`}
+          </p>
         </div>
       </div>
     </header>
