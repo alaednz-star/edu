@@ -744,7 +744,51 @@ export type Database = {
       };
     };
     Views: {
-      [_ in never]: never;
+      /**
+       * Approved-only enrolment count per group. Generated from the local
+       * schema; see `20260808180000_session_aggregates.sql`.
+       *
+       * Columns are nullable because Postgres cannot prove non-nullability
+       * through a view -- callers must coalesce. `group_enrollment_counts`
+       * always emits a row per group, so a null `group_id` never occurs in
+       * practice.
+       */
+      group_enrollment_counts: {
+        Row: {
+          enrolled_count: number | null;
+          group_id: string | null;
+        };
+        Relationships: [];
+      };
+      /** One row per (group_id, session_date) = one session, per ADR-003. */
+      session_attendance_summary: {
+        Row: {
+          absent_count: number | null;
+          excused_count: number | null;
+          group_id: string | null;
+          last_marked_at: string | null;
+          late_count: number | null;
+          marked_count: number | null;
+          present_count: number | null;
+          session_date: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "attendance_group_id_fkey";
+            columns: ["group_id"];
+            isOneToOne: false;
+            referencedRelation: "group_enrollment_counts";
+            referencedColumns: ["group_id"];
+          },
+          {
+            foreignKeyName: "attendance_group_id_fkey";
+            columns: ["group_id"];
+            isOneToOne: false;
+            referencedRelation: "groups";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Functions: {
       entity_dependencies: {

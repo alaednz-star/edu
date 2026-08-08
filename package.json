@@ -9,6 +9,8 @@
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "lint": "eslint .",
+    "test:session": "node --test \"src/features/school/session/*.test.ts\"",
+    "test:e2e:session": "node scripts/e2e/verify-session-aggregates.mjs && node scripts/e2e/verify-session-spine.mjs && node scripts/e2e/verify-session-calendar.mjs && node scripts/e2e/verify-session-calendar-rtl.mjs",
     "format": "prettier --write ."
   },
   "dependencies": {
