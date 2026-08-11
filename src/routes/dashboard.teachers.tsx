@@ -34,7 +34,7 @@ import { exportCsv } from "@/lib/export-csv";
 import { useI18n } from "@/hooks/use-i18n";
 import { useActionFeedback } from "@/hooks/use-action-feedback";
 import { initialsOf } from "@/lib/format";
-import { currentAccessToken } from "@/features/teachers/access-token";
+import { currentAccessToken } from "@/integrations/supabase/access-token";
 import { CreateTeacherDialog } from "@/features/teachers/components/create-teacher-dialog";
 import {
   TeacherActionsMenu,

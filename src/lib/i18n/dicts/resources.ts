@@ -104,7 +104,8 @@ export const resources: DictionaryModule = {
     "resources.dialog.titleRequired": "Le titre est requis.",
     "resources.dialog.fileRequired": "Choisissez un fichier ou saisissez un lien.",
     "resources.dialog.urlInvalid": "Adresse invalide. Elle doit commencer par https://",
-    "resources.dialog.fileTooLarge": "Fichier trop volumineux (50 Mo maximum).",
+    "resources.dialog.fileTooLarge":
+      "Ce fichier dépasse 250 Mo. Compressez-le ou partagez un lien Drive.",
 
     // Empty / error
     "resources.empty.title": "Aucun chapitre",
@@ -237,7 +238,7 @@ export const resources: DictionaryModule = {
     "resources.dialog.titleRequired": "العنوان مطلوب.",
     "resources.dialog.fileRequired": "اختر ملفًا أو أدخل رابطًا.",
     "resources.dialog.urlInvalid": "عنوان غير صالح. يجب أن يبدأ بـ https://",
-    "resources.dialog.fileTooLarge": "الملف كبير جدًا (50 ميغابايت كحد أقصى).",
+    "resources.dialog.fileTooLarge": "حجم هذا الملف يتجاوز 250 ميغابايت. اضغطه أو شارك رابط Drive.",
 
     "resources.empty.title": "لا توجد فصول",
     "resources.empty.description": "أنشئ فصلًا أولًا لتنظيم موادك.",
@@ -364,7 +365,7 @@ export const resources: DictionaryModule = {
     "resources.dialog.titleRequired": "A title is required.",
     "resources.dialog.fileRequired": "Choose a file or enter a link.",
     "resources.dialog.urlInvalid": "Invalid address. It must start with https://",
-    "resources.dialog.fileTooLarge": "File too large (50 MB maximum).",
+    "resources.dialog.fileTooLarge": "This file is over 250 MB. Compress it or share a Drive link.",
 
     "resources.empty.title": "No chapters",
     "resources.empty.description": "Create a first chapter to organise your course material.",

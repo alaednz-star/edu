@@ -386,7 +386,7 @@ function ResourceRowItem({
             <span className="min-w-0 text-sm font-medium [overflow-wrap:anywhere] line-clamp-2 sm:truncate">
               <Highlight text={resource.title} query={query} />
             </span>
-            {resource.isImportant && (
+            {resource.pinned && (
               <Star
                 className="size-3.5 shrink-0 fill-accent text-accent"
                 aria-label={t("resources.resource.important")}

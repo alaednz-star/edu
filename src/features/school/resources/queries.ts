@@ -9,6 +9,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { currentAccessToken } from "@/integrations/supabase/access-token";
+import { assertUploadAllowedFn, signResourceUrlFn } from "./storage.functions";
 import type {
   ChapterRow,
   CourseResources,
@@ -26,10 +28,6 @@ function must<T>(res: { data: T | null; error: { message: string } | null }): T 
 
 /** Private bucket. Files are only ever reached through a short-lived signed URL. */
 export const RESOURCE_BUCKET = "course-resources";
-
-/** Signed URLs last one hour: long enough to watch a video, short enough that a
- *  copied link is not a permanent handout. */
-const SIGNED_URL_TTL = 3600;
 
 /**
  * Every key under one root, so a single invalidation refreshes the teacher page,
@@ -87,7 +85,7 @@ interface RawResource {
   mime_type: string | null;
   size_bytes: number | null;
   position: number;
-  is_important: boolean;
+  pinned: boolean;
   allow_download: boolean;
   is_published: boolean;
   published_at: string | null;
@@ -107,7 +105,7 @@ function mapResource(r: RawResource): ResourceRow {
     mimeType: r.mime_type,
     sizeBytes: r.size_bytes,
     position: r.position,
-    isImportant: r.is_important,
+    pinned: r.pinned,
     allowDownload: r.allow_download,
     isPublished: r.is_published,
     publishedAt: r.published_at,
@@ -117,7 +115,7 @@ function mapResource(r: RawResource): ResourceRow {
 }
 
 const RESOURCE_COLUMNS =
-  "id, chapter_id, group_id, title, description, kind, storage_path, url, mime_type, size_bytes, position, is_important, allow_download, is_published, published_at, created_at";
+  "id, chapter_id, group_id, title, description, kind, storage_path, url, mime_type, size_bytes, position, pinned, allow_download, is_published, published_at, created_at";
 
 /* ------------------------------ STAFF READ ------------------------------ */
 
@@ -151,7 +149,8 @@ export function useCourseResources(groupId?: string | null) {
         const events = await supabase
           .from("resource_events")
           .select("resource_id, resources!inner(chapter_id)")
-          .eq("kind", "open")
+          // `open` was migrated to `view` in 20260811100000; nothing writes it now.
+          .eq("kind", "view")
           .in("resources.chapter_id", chapterIds);
         for (const e of events.data ?? []) {
           openCounts.set(e.resource_id, (openCounts.get(e.resource_id) ?? 0) + 1);
@@ -338,7 +337,7 @@ export interface ResourceInput {
   url?: string | null | undefined;
   mimeType?: string | null | undefined;
   sizeBytes?: number | null | undefined;
-  isImportant?: boolean | undefined;
+  pinned?: boolean | undefined;
   allowDownload?: boolean | undefined;
   isPublished?: boolean | undefined;
   publishedAt?: string | null | undefined;
@@ -359,7 +358,7 @@ export function useSaveResource() {
         url: input.kind === "link" ? (input.url?.trim() ?? null) : null,
         mime_type: input.mimeType ?? null,
         size_bytes: input.sizeBytes ?? null,
-        is_important: input.isImportant ?? false,
+        pinned: input.pinned ?? false,
         allow_download: input.allowDownload ?? true,
         is_published: input.isPublished ?? false,
         published_at: input.publishedAt ?? null,
@@ -447,12 +446,22 @@ export function useReorderResources() {
  * The path is `<group_id>/<uuid>/<filename>`, which is what the bucket policies
  * authorise on -- they read the leading folder rather than joining back to
  * `resources`, since the row does not exist yet at upload time.
+ *
+ * The per-file limit and the centre quota are decided on the server first. The
+ * bucket enforces its own size limit and cannot be bypassed, but it knows nothing
+ * about a 5 GB centre total -- so that half has to be asked somewhere the browser
+ * cannot edit, and asking before the bytes go over the wire is also the only way
+ * to fail fast on a 200 MB file.
  */
 export async function uploadResourceFile(
   groupId: string,
   file: File,
   onProgress?: (fraction: number) => void,
 ): Promise<{ path: string; mimeType: string; size: number }> {
+  const accessToken = await currentAccessToken();
+  if (!accessToken) throw new Error("Session expirée.");
+  await assertUploadAllowedFn({ data: { accessToken, groupId, sizeBytes: file.size } });
+
   const id = globalThis.crypto.randomUUID();
   // Keep the original name (students recognise "TD3-suites.pdf") but strip
   // anything that would break a path or a Content-Disposition header.
@@ -472,32 +481,42 @@ export async function uploadResourceFile(
 }
 
 /**
- * A time-limited URL for a stored file.
+ * A time-limited URL for a resource, issued by the server or not at all.
  *
- * Never a public URL: the bucket is private precisely so that a link copied out
- * of the browser stops working. `download` sets Content-Disposition so the
- * browser saves rather than previews.
+ * Takes a resource ID rather than a storage path on purpose. Signing used to
+ * happen here in the browser, which meant `allow_download` was enforced by hiding
+ * a button: anyone who could read the row could ask Storage for an attachment URL,
+ * because Storage cannot tell "preview this" from "save this" -- both need SELECT
+ * on the same object. So the decision moved server-side, and the server needs the
+ * row's identity to ask the database about it.
+ *
+ * `can_view_resource` / `can_download_resource` are the authority, evaluated as
+ * the caller. Links are returned as-is; the bucket stays private, so a copied URL
+ * still expires.
  */
 export async function signResourceUrl(
-  storagePath: string,
-  options?: { download?: boolean | undefined },
+  resourceId: string,
+  intent: "view" | "download" = "view",
 ): Promise<string> {
-  const { data, error } = await supabase.storage
-    .from(RESOURCE_BUCKET)
-    .createSignedUrl(storagePath, SIGNED_URL_TTL, options?.download ? { download: true } : {});
-  if (error) throw new Error(error.message);
-  return data.signedUrl;
+  const accessToken = await currentAccessToken();
+  if (!accessToken) throw new Error("Session expirée.");
+  const { url } = await signResourceUrlFn({ data: { accessToken, resourceId, intent } });
+  return url;
 }
 
 /* --------------------------------- EVENTS --------------------------------- */
 
 /**
- * Records that a student opened or downloaded a resource.
+ * Records that a student viewed or downloaded a resource.
  *
- * Upserts on the unique (resource, student, kind): the product question is "has
- * this student opened it?", so a re-open refreshes the timestamp instead of
- * growing the table. Failures are swallowed -- progress tracking must never
- * block a student from reading their course material.
+ * APPEND-ONLY. This used to upsert on a unique (resource, student, kind), which
+ * answered "has this student opened it?" but destroyed the history -- a second
+ * view overwrote the first. `20260811100000` drops that constraint, so an upsert
+ * here would now fail with 42P10 (no unique index matching ON CONFLICT) on every
+ * single write; it has to be a plain insert.
+ *
+ * Failures are swallowed: progress tracking must never block a student from
+ * reading their course material.
  */
 export function useRecordResourceEvent() {
   const qc = useQueryClient();
@@ -505,15 +524,12 @@ export function useRecordResourceEvent() {
   return useMutation({
     mutationFn: async (input: { resourceId: string; kind?: ResourceEventKind | undefined }) => {
       if (!user?.id) return;
-      await supabase.from("resource_events").upsert(
-        {
-          resource_id: input.resourceId,
-          student_id: user.id,
-          kind: input.kind ?? "open",
-          occurred_at: new Date().toISOString(),
-        },
-        { onConflict: "resource_id,student_id,kind" },
-      );
+      await supabase.from("resource_events").insert({
+        resource_id: input.resourceId,
+        student_id: user.id,
+        kind: input.kind ?? "view",
+        occurred_at: new Date().toISOString(),
+      });
     },
     onSuccess: () => void qc.invalidateQueries({ queryKey: resourceKeys.root }),
   });

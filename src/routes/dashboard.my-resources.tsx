@@ -92,7 +92,7 @@ function MyResourcesPage() {
 
   /** Teacher-flagged -- the "don't miss this" rail. */
   const important = useMemo(
-    () => (railsWorthwhile ? allResources.filter((r) => r.isImportant).slice(0, 4) : []),
+    () => (railsWorthwhile ? allResources.filter((r) => r.pinned).slice(0, 4) : []),
     [allResources, railsWorthwhile],
   );
 
@@ -130,7 +130,7 @@ function MyResourcesPage() {
 
   /** Opening records progress, then shows the preview. */
   const open = (r: ResourceRow) => {
-    recordEvent.mutate({ resourceId: r.id, kind: "open" });
+    recordEvent.mutate({ resourceId: r.id, kind: "view" });
     if (r.kind === "link" && r.url) {
       globalThis.open(r.url, "_blank", "noopener,noreferrer");
       return;
@@ -139,17 +139,22 @@ function MyResourcesPage() {
   };
 
   const download = async (r: ResourceRow) => {
-    // Belt and braces: the button is hidden when downloads are off, and storage
-    // RLS refuses anyway. Checking here keeps a stale render honest.
+    // Hiding the button is a courtesy; `can_download_resource` in the database is
+    // what actually decides, and the server refuses to sign an attachment URL
+    // without it. This early return only keeps a stale render from a pointless
+    // round trip.
     if (!r.allowDownload) return;
     try {
-      recordEvent.mutate({ resourceId: r.id, kind: "download" });
       if (r.kind === "link" && r.url) {
+        recordEvent.mutate({ resourceId: r.id, kind: "download" });
         globalThis.open(r.url, "_blank", "noopener,noreferrer");
         return;
       }
       if (!r.storagePath) return;
-      const url = await signResourceUrl(r.storagePath, { download: true });
+      const url = await signResourceUrl(r.id, "download");
+      // Recorded only once the URL exists, so the count means "downloads the
+      // server authorised" rather than "times the button was pressed".
+      recordEvent.mutate({ resourceId: r.id, kind: "download" });
       globalThis.open(url, "_blank", "noopener,noreferrer");
     } catch (e) {
       notifyError(e);

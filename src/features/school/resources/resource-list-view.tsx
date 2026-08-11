@@ -224,7 +224,7 @@ export function ResourceListView({
                           <span className="min-w-0 truncate text-[13px] font-medium">
                             {r.title}
                           </span>
-                          {r.isImportant && (
+                          {r.pinned && (
                             <Star
                               className="size-3 shrink-0 fill-accent text-accent"
                               aria-label={t("resources.resource.important")}
@@ -309,7 +309,7 @@ export function ResourceListView({
                     <span className="min-w-0 text-sm font-medium [overflow-wrap:anywhere] line-clamp-2">
                       {r.title}
                     </span>
-                    {r.isImportant && (
+                    {r.pinned && (
                       <Star className="size-3 shrink-0 fill-accent text-accent" aria-hidden />
                     )}
                   </span>

@@ -219,7 +219,7 @@ function ResourcesPage() {
               sizeBytes: sizeBytes ?? resourceDialog.resource?.sizeBytes ?? null,
             }
           : { url: v.url }),
-        isImportant: v.isImportant,
+        pinned: v.pinned,
         allowDownload: v.allowDownload,
         isPublished: v.isPublished,
         // A local `datetime-local` value is stored as an instant.
@@ -276,7 +276,7 @@ function ResourcesPage() {
         return;
       }
       if (!r.storagePath) return;
-      const url = await signResourceUrl(r.storagePath, { download: true });
+      const url = await signResourceUrl(r.id, "download");
       globalThis.open(url, "_blank", "noopener,noreferrer");
     } catch (e) {
       notifyError(e);

@@ -45,7 +45,7 @@ export function ResourcePreview({
     let active = true;
     setLoading(true);
     setError(null);
-    void signResourceUrl(resource.storagePath)
+    void signResourceUrl(resource.id)
       .then((signed) => {
         if (active) setUrl(signed);
       })
@@ -135,7 +135,7 @@ export function ResourcePreview({
                   className="rounded-xl"
                   onClick={() => {
                     if (!resource.storagePath) return;
-                    void signResourceUrl(resource.storagePath, { download: true }).then((u) =>
+                    void signResourceUrl(resource.id, "download").then((u) =>
                       globalThis.open(u, "_blank", "noopener,noreferrer"),
                     );
                   }}

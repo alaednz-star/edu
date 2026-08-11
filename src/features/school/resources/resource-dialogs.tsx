@@ -33,8 +33,10 @@ import { cn } from "@/lib/utils";
 import { formatBytes } from "./resource-icon";
 import type { ChapterRow, CourseResources, ResourceKind, ResourceRow } from "./types";
 
-/** Mirrors the bucket's `file_size_limit`; checked here to fail before upload. */
-const MAX_BYTES = 50 * 1024 * 1024;
+/** Mirrors the bucket's `file_size_limit` and `MAX_FILE_BYTES` in
+ *  `storage.server.ts`. Checked here only to fail fast with a readable message --
+ *  the bucket and the server function are what actually enforce it. */
+const MAX_BYTES = 250 * 1024 * 1024;
 
 /* ------------------------------- CHAPTER ------------------------------- */
 
@@ -168,7 +170,7 @@ export interface ResourceFormValue {
   kind: ResourceKind;
   url: string;
   file: File | null;
-  isImportant: boolean;
+  pinned: boolean;
   allowDownload: boolean;
   isPublished: boolean;
   /** `datetime-local` string, or "" for immediate. */
@@ -202,7 +204,7 @@ export function ResourceDialog({
   const [kind, setKind] = useState<ResourceKind>("file");
   const [url, setUrl] = useState("");
   const [file, setFile] = useState<File | null>(null);
-  const [isImportant, setImportant] = useState(false);
+  const [pinned, setPinned] = useState(false);
   const [allowDownload, setAllowDownload] = useState(true);
   const [isPublished, setPublished] = useState(true);
   const [publishAt, setPublishAt] = useState("");
@@ -224,7 +226,7 @@ export function ResourceDialog({
     setKind(resource?.kind ?? "file");
     setUrl(resource?.url ?? "");
     setFile(null);
-    setImportant(resource?.isImportant ?? false);
+    setPinned(resource?.pinned ?? false);
     setAllowDownload(resource?.allowDownload ?? true);
     setPublished(resource?.isPublished ?? true);
     // `datetime-local` wants `YYYY-MM-DDTHH:mm` with no zone.
@@ -252,7 +254,7 @@ export function ResourceDialog({
       kind,
       url,
       file,
-      isImportant,
+      pinned,
       allowDownload,
       isPublished,
       publishAt,
@@ -398,8 +400,8 @@ export function ResourceDialog({
             <ToggleRow
               id="res-important"
               label={t("resources.dialog.markImportant")}
-              checked={isImportant}
-              onChange={setImportant}
+              checked={pinned}
+              onChange={setPinned}
             />
             {kind === "file" && (
               <ToggleRow

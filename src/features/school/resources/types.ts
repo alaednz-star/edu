@@ -5,7 +5,10 @@
  */
 
 export type ResourceKind = "file" | "link";
-export type ResourceEventKind = "open" | "download";
+/** `open` was migrated to `view` in 20260811100000 and nothing writes it any more;
+ *  the enum value survives in Postgres only because a value in use cannot be
+ *  removed. Kept off this union so no new call site can reach for it. */
+export type ResourceEventKind = "view" | "download";
 
 /**
  * Derived visibility. Not a stored column: `is_published` and `published_at` are
@@ -28,7 +31,7 @@ export interface ResourceRow {
   mimeType: string | null;
   sizeBytes: number | null;
   position: number;
-  isImportant: boolean;
+  pinned: boolean;
   allowDownload: boolean;
   isPublished: boolean;
   publishedAt: string | null;

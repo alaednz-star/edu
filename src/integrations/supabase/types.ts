@@ -171,7 +171,10 @@ export type Database = {
           description: string | null;
           group_id: string;
           id: string;
+          is_published: boolean;
+          pinned: boolean;
           position: number;
+          published_at: string | null;
           title: string;
           updated_at: string;
         };
@@ -181,7 +184,10 @@ export type Database = {
           description?: string | null;
           group_id: string;
           id?: string;
+          is_published?: boolean;
+          pinned?: boolean;
           position?: number;
+          published_at?: string | null;
           title: string;
           updated_at?: string;
         };
@@ -191,7 +197,10 @@ export type Database = {
           description?: string | null;
           group_id?: string;
           id?: string;
+          is_published?: boolean;
+          pinned?: boolean;
           position?: number;
+          published_at?: string | null;
           title?: string;
           updated_at?: string;
         };
@@ -553,14 +562,19 @@ export type Database = {
           created_at: string;
           created_by: string | null;
           description: string | null;
+          file_ext: string | null;
+          file_name: string | null;
           group_id: string;
           id: string;
-          is_important: boolean;
           is_published: boolean;
           kind: Database["public"]["Enums"]["resource_kind"];
+          link_provider: string | null;
+          link_thumbnail_url: string | null;
           mime_type: string | null;
+          pinned: boolean;
           position: number;
           published_at: string | null;
+          role: Database["public"]["Enums"]["resource_role"];
           size_bytes: number | null;
           storage_path: string | null;
           title: string;
@@ -573,14 +587,19 @@ export type Database = {
           created_at?: string;
           created_by?: string | null;
           description?: string | null;
+          file_ext?: string | null;
+          file_name?: string | null;
           group_id: string;
           id?: string;
-          is_important?: boolean;
           is_published?: boolean;
           kind: Database["public"]["Enums"]["resource_kind"];
+          link_provider?: string | null;
+          link_thumbnail_url?: string | null;
           mime_type?: string | null;
+          pinned?: boolean;
           position?: number;
           published_at?: string | null;
+          role?: Database["public"]["Enums"]["resource_role"];
           size_bytes?: number | null;
           storage_path?: string | null;
           title: string;
@@ -593,14 +612,19 @@ export type Database = {
           created_at?: string;
           created_by?: string | null;
           description?: string | null;
+          file_ext?: string | null;
+          file_name?: string | null;
           group_id?: string;
           id?: string;
-          is_important?: boolean;
           is_published?: boolean;
           kind?: Database["public"]["Enums"]["resource_kind"];
+          link_provider?: string | null;
+          link_thumbnail_url?: string | null;
           mime_type?: string | null;
+          pinned?: boolean;
           position?: number;
           published_at?: string | null;
+          role?: Database["public"]["Enums"]["resource_role"];
           size_bytes?: number | null;
           storage_path?: string | null;
           title?: string;
@@ -974,7 +998,18 @@ export type Database = {
       };
     };
     Functions: {
+      can_download_resource: {
+        Args: { _resource_id: string };
+        Returns: boolean;
+      };
       can_manage_group: { Args: { _group_id: string }; Returns: boolean };
+      can_record_resource_event: {
+        Args: { _resource_id: string };
+        Returns: boolean;
+      };
+      can_view_resource: { Args: { _resource_id: string }; Returns: boolean };
+      center_storage_bytes: { Args: never; Returns: number };
+      center_storage_quota_bytes: { Args: never; Returns: number };
       entity_dependencies: {
         Args: { _entity: string; _id: string };
         Returns: {
@@ -995,6 +1030,10 @@ export type Database = {
         };
         Returns: undefined;
       };
+      resource_role_weight: {
+        Args: { _role: Database["public"]["Enums"]["resource_role"] };
+        Returns: number;
+      };
       set_teacher_lifecycle: {
         Args: {
           _next: Database["public"]["Enums"]["entity_status"];
@@ -1003,6 +1042,7 @@ export type Database = {
         };
         Returns: undefined;
       };
+      storage_quota_allows: { Args: { _incoming: number }; Returns: boolean };
       teacher_deletion_blockers: {
         Args: { _teacher: string };
         Returns: {
@@ -1050,8 +1090,9 @@ export type Database = {
         | "group_updated"
         | "announcement";
       registration_status: "pending" | "approved" | "rejected";
-      resource_event_kind: "open" | "download";
+      resource_event_kind: "open" | "download" | "view";
       resource_kind: "file" | "link";
+      resource_role: "notes" | "exercises" | "solutions" | "video" | "homework" | "extra";
     };
     CompositeTypes: {
       [_ in never]: never;
@@ -1204,8 +1245,9 @@ export const Constants = {
         "announcement",
       ],
       registration_status: ["pending", "approved", "rejected"],
-      resource_event_kind: ["open", "download"],
+      resource_event_kind: ["open", "download", "view"],
       resource_kind: ["file", "link"],
+      resource_role: ["notes", "exercises", "solutions", "video", "homework", "extra"],
     },
   },
 } as const;

@@ -111,6 +111,14 @@ async function createUser({ email, fullName, role }) {
 /**
  * Provisions the requested accounts and returns them plus a `cleanup()`.
  * `cleanup()` is safe to call more than once.
+ *
+ * CALL `cleanup()` ONLY IN A `finally`, NEVER MID-RUN. It delegates to
+ * `cleanupFixtures()`, which deletes EVERY `e2e-fixture%` account -- not just the
+ * ones this handle made. A suite that cleans up a secondary handle halfway
+ * through also deletes its own student, whose `students` row and registrations
+ * cascade away with it. Every later authorisation check then fails for the right
+ * reason on the wrong grounds; this cost a day chasing a phantom RLS bug in
+ * `resource_events`.
  */
 export async function withFixtures({ admin = false, teacher = false, student = false } = {}) {
   const made = [];
