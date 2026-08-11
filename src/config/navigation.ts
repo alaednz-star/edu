@@ -6,6 +6,7 @@ import {
   BookOpen,
   ClipboardList,
   FileText,
+  FolderOpen,
   GraduationCap,
   LayoutDashboard,
   Layers3,
@@ -76,6 +77,12 @@ export const dashboardNavigation: NavSection[] = [
         icon: PieChart,
         roles: ["admin", "teacher"],
       },
+      {
+        labelKey: "menu.resources",
+        to: "/dashboard/resources",
+        icon: FolderOpen,
+        roles: ["admin", "teacher"],
+      },
     ],
   },
   {
@@ -127,6 +134,12 @@ export const dashboardNavigation: NavSection[] = [
         labelKey: "menu.myClasses",
         to: "/dashboard/my-classes",
         icon: GraduationCap,
+        roles: ["student"],
+      },
+      {
+        labelKey: "menu.myResources",
+        to: "/dashboard/my-resources",
+        icon: FolderOpen,
         roles: ["student"],
       },
       {

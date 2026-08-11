@@ -64,6 +64,13 @@ export type Database = {
             foreignKeyName: "attendance_group_id_fkey";
             columns: ["group_id"];
             isOneToOne: false;
+            referencedRelation: "group_enrollment_counts";
+            referencedColumns: ["group_id"];
+          },
+          {
+            foreignKeyName: "attendance_group_id_fkey";
+            columns: ["group_id"];
+            isOneToOne: false;
             referencedRelation: "groups";
             referencedColumns: ["id"];
           },
@@ -157,6 +164,54 @@ export type Database = {
         };
         Relationships: [];
       };
+      chapters: {
+        Row: {
+          created_at: string;
+          created_by: string | null;
+          description: string | null;
+          group_id: string;
+          id: string;
+          position: number;
+          title: string;
+          updated_at: string;
+        };
+        Insert: {
+          created_at?: string;
+          created_by?: string | null;
+          description?: string | null;
+          group_id: string;
+          id?: string;
+          position?: number;
+          title: string;
+          updated_at?: string;
+        };
+        Update: {
+          created_at?: string;
+          created_by?: string | null;
+          description?: string | null;
+          group_id?: string;
+          id?: string;
+          position?: number;
+          title?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "chapters_group_id_fkey";
+            columns: ["group_id"];
+            isOneToOne: false;
+            referencedRelation: "group_enrollment_counts";
+            referencedColumns: ["group_id"];
+          },
+          {
+            foreignKeyName: "chapters_group_id_fkey";
+            columns: ["group_id"];
+            isOneToOne: false;
+            referencedRelation: "groups";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       group_schedules: {
         Row: {
           end_time: string;
@@ -183,6 +238,13 @@ export type Database = {
           weekday?: number;
         };
         Relationships: [
+          {
+            foreignKeyName: "group_schedules_group_id_fkey";
+            columns: ["group_id"];
+            isOneToOne: false;
+            referencedRelation: "group_enrollment_counts";
+            referencedColumns: ["group_id"];
+          },
           {
             foreignKeyName: "group_schedules_group_id_fkey";
             columns: ["group_id"];
@@ -412,6 +474,13 @@ export type Database = {
             foreignKeyName: "registrations_group_id_fkey";
             columns: ["group_id"];
             isOneToOne: false;
+            referencedRelation: "group_enrollment_counts";
+            referencedColumns: ["group_id"];
+          },
+          {
+            foreignKeyName: "registrations_group_id_fkey";
+            columns: ["group_id"];
+            isOneToOne: false;
             referencedRelation: "groups";
             referencedColumns: ["id"];
           },
@@ -434,6 +503,130 @@ export type Database = {
             columns: ["subject_id"];
             isOneToOne: false;
             referencedRelation: "subjects";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      resource_events: {
+        Row: {
+          id: string;
+          kind: Database["public"]["Enums"]["resource_event_kind"];
+          occurred_at: string;
+          resource_id: string;
+          student_id: string;
+        };
+        Insert: {
+          id?: string;
+          kind?: Database["public"]["Enums"]["resource_event_kind"];
+          occurred_at?: string;
+          resource_id: string;
+          student_id: string;
+        };
+        Update: {
+          id?: string;
+          kind?: Database["public"]["Enums"]["resource_event_kind"];
+          occurred_at?: string;
+          resource_id?: string;
+          student_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "resource_events_resource_id_fkey";
+            columns: ["resource_id"];
+            isOneToOne: false;
+            referencedRelation: "resources";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "resource_events_student_id_fkey";
+            columns: ["student_id"];
+            isOneToOne: false;
+            referencedRelation: "students";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      resources: {
+        Row: {
+          allow_download: boolean;
+          chapter_id: string;
+          created_at: string;
+          created_by: string | null;
+          description: string | null;
+          group_id: string;
+          id: string;
+          is_important: boolean;
+          is_published: boolean;
+          kind: Database["public"]["Enums"]["resource_kind"];
+          mime_type: string | null;
+          position: number;
+          published_at: string | null;
+          size_bytes: number | null;
+          storage_path: string | null;
+          title: string;
+          updated_at: string;
+          url: string | null;
+        };
+        Insert: {
+          allow_download?: boolean;
+          chapter_id: string;
+          created_at?: string;
+          created_by?: string | null;
+          description?: string | null;
+          group_id: string;
+          id?: string;
+          is_important?: boolean;
+          is_published?: boolean;
+          kind: Database["public"]["Enums"]["resource_kind"];
+          mime_type?: string | null;
+          position?: number;
+          published_at?: string | null;
+          size_bytes?: number | null;
+          storage_path?: string | null;
+          title: string;
+          updated_at?: string;
+          url?: string | null;
+        };
+        Update: {
+          allow_download?: boolean;
+          chapter_id?: string;
+          created_at?: string;
+          created_by?: string | null;
+          description?: string | null;
+          group_id?: string;
+          id?: string;
+          is_important?: boolean;
+          is_published?: boolean;
+          kind?: Database["public"]["Enums"]["resource_kind"];
+          mime_type?: string | null;
+          position?: number;
+          published_at?: string | null;
+          size_bytes?: number | null;
+          storage_path?: string | null;
+          title?: string;
+          updated_at?: string;
+          url?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "resources_chapter_id_fkey";
+            columns: ["chapter_id"];
+            isOneToOne: false;
+            referencedRelation: "chapters";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "resources_group_id_fkey";
+            columns: ["group_id"];
+            isOneToOne: false;
+            referencedRelation: "group_enrollment_counts";
+            referencedColumns: ["group_id"];
+          },
+          {
+            foreignKeyName: "resources_group_id_fkey";
+            columns: ["group_id"];
+            isOneToOne: false;
+            referencedRelation: "groups";
             referencedColumns: ["id"];
           },
         ];
@@ -744,15 +937,6 @@ export type Database = {
       };
     };
     Views: {
-      /**
-       * Approved-only enrolment count per group. Generated from the local
-       * schema; see `20260808180000_session_aggregates.sql`.
-       *
-       * Columns are nullable because Postgres cannot prove non-nullability
-       * through a view -- callers must coalesce. `group_enrollment_counts`
-       * always emits a row per group, so a null `group_id` never occurs in
-       * practice.
-       */
       group_enrollment_counts: {
         Row: {
           enrolled_count: number | null;
@@ -760,7 +944,6 @@ export type Database = {
         };
         Relationships: [];
       };
-      /** One row per (group_id, session_date) = one session, per ADR-003. */
       session_attendance_summary: {
         Row: {
           absent_count: number | null;
@@ -791,6 +974,7 @@ export type Database = {
       };
     };
     Functions: {
+      can_manage_group: { Args: { _group_id: string }; Returns: boolean };
       entity_dependencies: {
         Args: { _entity: string; _id: string };
         Returns: {
@@ -800,6 +984,7 @@ export type Database = {
           source_table: string;
         }[];
       };
+      is_enrolled_in_group: { Args: { _group_id: string }; Returns: boolean };
       provision_staff: {
         Args: {
           _bio?: string;
@@ -865,6 +1050,8 @@ export type Database = {
         | "group_updated"
         | "announcement";
       registration_status: "pending" | "approved" | "rejected";
+      resource_event_kind: "open" | "download";
+      resource_kind: "file" | "link";
     };
     CompositeTypes: {
       [_ in never]: never;
@@ -1017,6 +1204,8 @@ export const Constants = {
         "announcement",
       ],
       registration_status: ["pending", "approved", "rejected"],
+      resource_event_kind: ["open", "download"],
+      resource_kind: ["file", "link"],
     },
   },
 } as const;

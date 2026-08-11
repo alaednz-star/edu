@@ -26,10 +26,12 @@ import { Route as DashboardMyAttendanceRouteImport } from './routes/dashboard.my
 import { Route as DashboardMyClassesRouteImport } from './routes/dashboard.my-classes'
 import { Route as DashboardMyGroupsRouteImport } from './routes/dashboard.my-groups'
 import { Route as DashboardMyRegistrationsRouteImport } from './routes/dashboard.my-registrations'
+import { Route as DashboardMyResourcesRouteImport } from './routes/dashboard.my-resources'
 import { Route as DashboardMyStudentsRouteImport } from './routes/dashboard.my-students'
 import { Route as DashboardProfileRouteImport } from './routes/dashboard.profile'
 import { Route as DashboardRegistrationRouteImport } from './routes/dashboard.registration'
 import { Route as DashboardRegistrationsRouteImport } from './routes/dashboard.registrations'
+import { Route as DashboardResourcesRouteImport } from './routes/dashboard.resources'
 import { Route as DashboardScheduleRouteImport } from './routes/dashboard.schedule'
 import { Route as DashboardSettingsRouteImport } from './routes/dashboard.settings'
 import { Route as DashboardStudentsRouteImport } from './routes/dashboard.students'
@@ -128,6 +130,11 @@ const DashboardMyRegistrationsRoute =
     path: '/my-registrations',
     getParentRoute: () => DashboardRoute,
   } as any)
+const DashboardMyResourcesRoute = DashboardMyResourcesRouteImport.update({
+  id: '/my-resources',
+  path: '/my-resources',
+  getParentRoute: () => DashboardRoute,
+} as any)
 const DashboardMyStudentsRoute = DashboardMyStudentsRouteImport.update({
   id: '/my-students',
   path: '/my-students',
@@ -146,6 +153,11 @@ const DashboardRegistrationRoute = DashboardRegistrationRouteImport.update({
 const DashboardRegistrationsRoute = DashboardRegistrationsRouteImport.update({
   id: '/registrations',
   path: '/registrations',
+  getParentRoute: () => DashboardRoute,
+} as any)
+const DashboardResourcesRoute = DashboardResourcesRouteImport.update({
+  id: '/resources',
+  path: '/resources',
   getParentRoute: () => DashboardRoute,
 } as any)
 const DashboardScheduleRoute = DashboardScheduleRouteImport.update({
@@ -219,10 +231,12 @@ export interface FileRoutesByFullPath {
   '/dashboard/my-classes': typeof DashboardMyClassesRoute
   '/dashboard/my-groups': typeof DashboardMyGroupsRoute
   '/dashboard/my-registrations': typeof DashboardMyRegistrationsRoute
+  '/dashboard/my-resources': typeof DashboardMyResourcesRoute
   '/dashboard/my-students': typeof DashboardMyStudentsRoute
   '/dashboard/profile': typeof DashboardProfileRoute
   '/dashboard/registration': typeof DashboardRegistrationRouteWithChildren
   '/dashboard/registrations': typeof DashboardRegistrationsRoute
+  '/dashboard/resources': typeof DashboardResourcesRoute
   '/dashboard/schedule': typeof DashboardScheduleRoute
   '/dashboard/settings': typeof DashboardSettingsRoute
   '/dashboard/students': typeof DashboardStudentsRouteWithChildren
@@ -251,10 +265,12 @@ export interface FileRoutesByTo {
   '/dashboard/my-classes': typeof DashboardMyClassesRoute
   '/dashboard/my-groups': typeof DashboardMyGroupsRoute
   '/dashboard/my-registrations': typeof DashboardMyRegistrationsRoute
+  '/dashboard/my-resources': typeof DashboardMyResourcesRoute
   '/dashboard/my-students': typeof DashboardMyStudentsRoute
   '/dashboard/profile': typeof DashboardProfileRoute
   '/dashboard/registration': typeof DashboardRegistrationRouteWithChildren
   '/dashboard/registrations': typeof DashboardRegistrationsRoute
+  '/dashboard/resources': typeof DashboardResourcesRoute
   '/dashboard/schedule': typeof DashboardScheduleRoute
   '/dashboard/settings': typeof DashboardSettingsRoute
   '/dashboard/students': typeof DashboardStudentsRouteWithChildren
@@ -285,10 +301,12 @@ export interface FileRoutesById {
   '/dashboard/my-classes': typeof DashboardMyClassesRoute
   '/dashboard/my-groups': typeof DashboardMyGroupsRoute
   '/dashboard/my-registrations': typeof DashboardMyRegistrationsRoute
+  '/dashboard/my-resources': typeof DashboardMyResourcesRoute
   '/dashboard/my-students': typeof DashboardMyStudentsRoute
   '/dashboard/profile': typeof DashboardProfileRoute
   '/dashboard/registration': typeof DashboardRegistrationRouteWithChildren
   '/dashboard/registrations': typeof DashboardRegistrationsRoute
+  '/dashboard/resources': typeof DashboardResourcesRoute
   '/dashboard/schedule': typeof DashboardScheduleRoute
   '/dashboard/settings': typeof DashboardSettingsRoute
   '/dashboard/students': typeof DashboardStudentsRouteWithChildren
@@ -320,10 +338,12 @@ export interface FileRouteTypes {
     | '/dashboard/my-classes'
     | '/dashboard/my-groups'
     | '/dashboard/my-registrations'
+    | '/dashboard/my-resources'
     | '/dashboard/my-students'
     | '/dashboard/profile'
     | '/dashboard/registration'
     | '/dashboard/registrations'
+    | '/dashboard/resources'
     | '/dashboard/schedule'
     | '/dashboard/settings'
     | '/dashboard/students'
@@ -352,10 +372,12 @@ export interface FileRouteTypes {
     | '/dashboard/my-classes'
     | '/dashboard/my-groups'
     | '/dashboard/my-registrations'
+    | '/dashboard/my-resources'
     | '/dashboard/my-students'
     | '/dashboard/profile'
     | '/dashboard/registration'
     | '/dashboard/registrations'
+    | '/dashboard/resources'
     | '/dashboard/schedule'
     | '/dashboard/settings'
     | '/dashboard/students'
@@ -385,10 +407,12 @@ export interface FileRouteTypes {
     | '/dashboard/my-classes'
     | '/dashboard/my-groups'
     | '/dashboard/my-registrations'
+    | '/dashboard/my-resources'
     | '/dashboard/my-students'
     | '/dashboard/profile'
     | '/dashboard/registration'
     | '/dashboard/registrations'
+    | '/dashboard/resources'
     | '/dashboard/schedule'
     | '/dashboard/settings'
     | '/dashboard/students'
@@ -534,6 +558,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardMyRegistrationsRouteImport
       parentRoute: typeof DashboardRoute
     }
+    '/dashboard/my-resources': {
+      id: '/dashboard/my-resources'
+      path: '/my-resources'
+      fullPath: '/dashboard/my-resources'
+      preLoaderRoute: typeof DashboardMyResourcesRouteImport
+      parentRoute: typeof DashboardRoute
+    }
     '/dashboard/my-students': {
       id: '/dashboard/my-students'
       path: '/my-students'
@@ -560,6 +591,13 @@ declare module '@tanstack/react-router' {
       path: '/registrations'
       fullPath: '/dashboard/registrations'
       preLoaderRoute: typeof DashboardRegistrationsRouteImport
+      parentRoute: typeof DashboardRoute
+    }
+    '/dashboard/resources': {
+      id: '/dashboard/resources'
+      path: '/resources'
+      fullPath: '/dashboard/resources'
+      preLoaderRoute: typeof DashboardResourcesRouteImport
       parentRoute: typeof DashboardRoute
     }
     '/dashboard/schedule': {
@@ -692,10 +730,12 @@ interface DashboardRouteChildren {
   DashboardMyClassesRoute: typeof DashboardMyClassesRoute
   DashboardMyGroupsRoute: typeof DashboardMyGroupsRoute
   DashboardMyRegistrationsRoute: typeof DashboardMyRegistrationsRoute
+  DashboardMyResourcesRoute: typeof DashboardMyResourcesRoute
   DashboardMyStudentsRoute: typeof DashboardMyStudentsRoute
   DashboardProfileRoute: typeof DashboardProfileRoute
   DashboardRegistrationRoute: typeof DashboardRegistrationRouteWithChildren
   DashboardRegistrationsRoute: typeof DashboardRegistrationsRoute
+  DashboardResourcesRoute: typeof DashboardResourcesRoute
   DashboardScheduleRoute: typeof DashboardScheduleRoute
   DashboardSettingsRoute: typeof DashboardSettingsRoute
   DashboardStudentsRoute: typeof DashboardStudentsRouteWithChildren
@@ -714,10 +754,12 @@ const DashboardRouteChildren: DashboardRouteChildren = {
   DashboardMyClassesRoute: DashboardMyClassesRoute,
   DashboardMyGroupsRoute: DashboardMyGroupsRoute,
   DashboardMyRegistrationsRoute: DashboardMyRegistrationsRoute,
+  DashboardMyResourcesRoute: DashboardMyResourcesRoute,
   DashboardMyStudentsRoute: DashboardMyStudentsRoute,
   DashboardProfileRoute: DashboardProfileRoute,
   DashboardRegistrationRoute: DashboardRegistrationRouteWithChildren,
   DashboardRegistrationsRoute: DashboardRegistrationsRoute,
+  DashboardResourcesRoute: DashboardResourcesRoute,
   DashboardScheduleRoute: DashboardScheduleRoute,
   DashboardSettingsRoute: DashboardSettingsRoute,
   DashboardStudentsRoute: DashboardStudentsRouteWithChildren,
