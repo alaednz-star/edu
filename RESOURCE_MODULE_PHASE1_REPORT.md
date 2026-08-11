@@ -248,9 +248,18 @@ the order asked:
 5. Only then, a **separate** migration drops it:
    `20260811110000_resources_drop_is_important.sql`
 
-The drop is not in the Phase 1 migration. It guards itself — it refuses to run if
-the two columns disagree — and it documents its own reversal, which is possible
-precisely because the data survives in `pinned`.
+The drop is not in the Phase 1 migration, and it documents its own reversal, which
+is possible precisely because the data survives in `pinned`.
+
+Its guard requires only that `pinned` exists. An earlier version *also* refused to
+run while the two columns disagreed, which sounded prudent and was wrong: between
+the two migrations the new bundle goes live and writes `pinned` only, so every
+resource pinned in the interim leaves `is_important` stale. Divergence is the
+expected state at the moment this migration runs, not a fault — `pinned` is
+canonical and `is_important` is a legacy column nothing reads. The old guard would
+have blocked the drop at exactly the step the deployment order requires. Caught by
+rehearsing the deployment rather than reasoning about it (§8), and the migration now
+*reports* the divergence instead of refusing.
 
 **⚠ Deploy ordering:** apply `20260811110000` only **after** the Phase 1
 application code is live. Both halves are in the same commit, but if the migration
@@ -393,6 +402,34 @@ On that faithful clone, with 4 chapters, 7 resources and one `open` event:
 
 The clone and its dump were then removed, and the working local database was
 re-verified: 43/43 and 21/21 still pass.
+
+### The rehearsal was then extended through the deploy window
+
+Replaying the two deployable migrations was not enough, because the risky moment is
+between them. The rehearsal now simulates the whole sequence on a clone rewound to
+production's shape — enum `('open','download')`, `is_important` present, none of the
+nine new columns, one `open` event:
+
+| Step | Result |
+|---|---|
+| push `…095000` | commits |
+| push `…100000` | commits. `is_important` **still present**, so a stale bundle keeps working |
+| new bundle goes live and pins a resource, writing `pinned` only | 1 row where `is_important` is now stale |
+| push `…110000` | commits, reporting "1 of 8 resources had already diverged, as expected" |
+
+Row counts across the whole sequence: chapters 4, registrations 1, groups 25,
+attendance 0, events 1 — unchanged throughout. Policies on `resources`: 2 before,
+2 after.
+
+**This is what caught the guard defect described in §6.** The first run of this
+rehearsal failed at the last step with
+`ERROR: 1 resources disagree between pinned and is_important` — my own guard
+refusing the migration at the only point it is meant to run.
+
+The rehearsal is committed as `scripts/e2e/rehearse-resources-phase1-release.sh`
+(with its rewind and enum-rebuild companions). It never connects to production — it
+clones the local database, rewinds the clone, and drops it afterwards. Worth
+re-running if either migration is edited.
 
 ---
 

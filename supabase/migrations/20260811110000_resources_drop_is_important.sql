@@ -15,8 +15,12 @@
 -- Why it is safe to drop at all -- checked, not assumed:
 --   * no policy, index, view, function, constraint, trigger or generated column
 --     references it (verified against the migrated database, 0 rows)
---   * `pinned` equals `is_important` on every row (verified, 0 differences)
---   * nothing in `src/` reads or writes it (verified by search)
+--   * `pinned` was backfilled from it by 20260811100000, so no state is lost
+--   * nothing in `src/` reads or writes it (verified by search: zero hits)
+--
+-- Note it is NOT a precondition that the two columns still agree. They agree at
+-- the moment 20260811100000 finishes and then drift, because the new bundle writes
+-- `pinned` only. See the guard below.
 --
 -- Reversal, if ever needed: re-add the column and backfill from `pinned`.
 --   alter table public.resources add column is_important boolean not null default false;
@@ -25,26 +29,36 @@
 -- reason a drop is acceptable here.
 -- ==================================================================
 
--- Guard: refuse to drop while the two columns disagree, which would mean the
--- Phase 1 backfill was skipped or something wrote `is_important` afterwards.
+-- Guard: `pinned` must exist, because that is where the data lives after this runs.
+--
+-- An earlier version of this guard ALSO refused to drop while the two columns
+-- disagreed. That was wrong, and it would have blocked this migration at exactly
+-- the moment it is meant to run. Between 20260811100000 and this file the new
+-- bundle goes live, and the new bundle writes `pinned` ONLY -- so every resource
+-- pinned or unpinned in the interim leaves `is_important` stale. Divergence is the
+-- expected state here, not a fault: `pinned` is canonical and `is_important` is a
+-- legacy column nothing reads. Refusing on divergence made the safe deployment
+-- order impossible to follow, which a release audit caught by simulating it.
+--
+-- Divergence is reported instead, so the operator can see that `is_important` had
+-- gone stale and that dropping it is losing nothing `pinned` does not already hold.
 do $$
 declare _n integer;
 begin
+  if not exists (
+    select 1 from information_schema.columns
+     where table_schema = 'public' and table_name = 'resources' and column_name = 'pinned'
+  ) then
+    raise exception '`pinned` is missing; apply 20260811100000 first';
+  end if;
+
   if exists (
     select 1 from information_schema.columns
      where table_schema = 'public' and table_name = 'resources' and column_name = 'is_important'
   ) then
-    if not exists (
-      select 1 from information_schema.columns
-       where table_schema = 'public' and table_name = 'resources' and column_name = 'pinned'
-    ) then
-      raise exception '`pinned` is missing; apply 20260811100000 first';
-    end if;
-
     select count(*) into _n from public.resources where pinned is distinct from is_important;
-    if _n <> 0 then
-      raise exception '% resources disagree between pinned and is_important; reconcile before dropping', _n;
-    end if;
+    raise notice 'Dropping is_important. % of % resources had already diverged from pinned, as expected once the new bundle went live.',
+      _n, (select count(*) from public.resources);
   end if;
 end $$;
 

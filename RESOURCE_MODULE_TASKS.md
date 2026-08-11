@@ -46,6 +46,8 @@ transactionally on a clone rewound to production shape.
 - [x] Existing rows preserved (4 chapters, 7 resources before and after)
 - [x] **Fixed a push-blocking bug**: `alter type ... add value` and the `update` that used it were in one file, which `supabase db push` runs in one transaction — Postgres refuses to use a new enum value before its transaction commits. Data-dependent, so it passed on an empty table. Split into its own migration and reproduced/re-verified on a clone (report §8)
 - [x] Chain replayed one transaction per file on a clone rewound to production shape — no partial application, all data preserved
+- [x] Rehearsal extended through the deploy window (push, push, new bundle writes `pinned`, then drop) — all four steps commit, row counts unchanged
+- [x] Release audit: production confirmed at `20260810130000` with all nine Phase 1 columns absent; only one destructive statement in the whole phase and it is in the migration held back; no service-role key or server module in the client bundle; production build succeeds
 - [x] `RESOURCE_MODULE_PHASE1_REPORT.md`
 - [ ] **Apply to production** — not done, awaiting instruction. Order: `…100000` with the code, `…110000` only once the code is live (report §6)
 
@@ -72,6 +74,7 @@ transactionally on a clone rewound to production shape.
 - [x] Every call site audited (13 in the module, 2 in routes) and migrated to `pinned`
 - [x] No application code, policy, index, view, function, constraint or trigger depends on `is_important`; `pinned` matched it on every row
 - [x] Separate migration prepared and applied locally, with a guard and a documented reversal — **not** folded into the Phase 1 migration
+- [x] Guard corrected after a release rehearsal: it required `pinned` and `is_important` to still agree, which the deployment order makes false (the new bundle writes `pinned` only), so it would have blocked the drop at exactly step 4. It now requires only that `pinned` exists and reports divergence
 
 ---
 
