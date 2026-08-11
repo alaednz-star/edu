@@ -1,13 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { useSubjectLabel } from "@/features/school/subject-label";
 import { createFileRoute } from "@tanstack/react-router";
-import { toast } from "sonner";
-import { PageHeader } from "@/components/common/page-header";
-import { EmptyState } from "@/components/common/empty-state";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { ErrorState } from "@/components/common/error-state";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
@@ -19,284 +14,382 @@ import {
 import { RequireAuth } from "@/features/auth/require-auth";
 import { useAuth } from "@/hooks/use-auth";
 import { useI18n } from "@/hooks/use-i18n";
-import { useActionFeedback } from "@/hooks/use-action-feedback";
-import { useAttendance, useGroups, useSaveAttendance } from "@/features/school/queries";
-import type { AttendanceStatus } from "@/features/school/types";
-import { weekdayLabel } from "@/features/school/schedule";
-import { todayIso } from "@/lib/format";
-import { AlertTriangle, CalendarCheck, Loader2 } from "lucide-react";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { useTeachers } from "@/features/school/queries";
+import { useSessions } from "@/features/school/session/use-sessions";
+import { AttendanceDrawer } from "@/features/school/session/attendance-drawer";
+import { AgendaView, MonthView, WeekView } from "@/features/school/session/calendar-views";
+import {
+  fromIso,
+  startOfWeek,
+  step,
+  toIso,
+  windowFor,
+  type CalendarView,
+} from "@/features/school/session/calendar-range";
+import { parseAttendanceSearch, safeDate } from "@/features/school/session/deep-link";
+import type { SessionInstance } from "@/features/school/session/types";
+import { useSubjectLabel } from "@/features/school/subject-label";
+import { subjectColor } from "@/features/school/session/subject-tint";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/dashboard/attendance")({
+  validateSearch: parseAttendanceSearch,
   head: () => ({
     meta: [
       { title: "Présences — Madrasti" },
-      { name: "description", content: "Marquez les présences de chaque séance en un clic." },
+      { name: "description", content: "Le calendrier des séances : pointez en un clic." },
       { property: "og:title", content: "Présences — Madrasti" },
-      { property: "og:description", content: "Marquez les présences de chaque séance." },
+      { property: "og:description", content: "Le calendrier des séances." },
     ],
   }),
   component: () => (
     <RequireAuth roles={["admin", "teacher"]}>
-      <AttendancePage />
+      <AttendanceCalendarPage />
     </RequireAuth>
   ),
 });
 
-const STATUSES: AttendanceStatus[] = ["present", "absent", "late", "excused"];
-const LABEL_KEYS: Record<AttendanceStatus, string> = {
-  present: "entity.attendance.statusPresent",
-  absent: "entity.attendance.statusAbsent",
-  late: "entity.attendance.statusLate",
-  excused: "entity.attendance.statusExcused",
-};
+const ALL = "__all__";
 
-/** One shared reference, so "no roster yet" never looks like new data. */
-const EMPTY_ROSTER: never[] = [];
-
-function AttendancePage() {
+/**
+ * The schedule IS the picker.
+ *
+ * All session data comes from the Session Spine (`useSessions`). This page never
+ * expands recurrence, never counts registrations, and never fetches a roster --
+ * the drawer does that for one session when it opens.
+ */
+function AttendanceCalendarPage() {
   const { t } = useI18n();
-  const subjectLabel = useSubjectLabel();
-  const { notifySuccess, notifyError } = useActionFeedback();
   const { user } = useAuth();
-  const {
-    data: groups = [],
-    isLoading: loadingGroups,
-    error: groupsError,
-    refetch: refetchGroups,
-    isFetching: fetchingGroups,
-  } = useGroups();
-  const scoped = user?.role === "teacher" ? groups.filter((g) => g.teacherId === user.id) : groups;
+  const subjectLabel = useSubjectLabel();
+  const isMobile = useIsMobile();
 
-  const [groupId, setGroupId] = useState<string | undefined>(undefined);
-  // Local date, not `toISOString()`: that converts to UTC first, so anywhere
-  // east of Greenwich after ~22:00 the register would open on tomorrow's date.
-  const [date, setDate] = useState(todayIso);
-  const {
-    data,
-    isLoading,
-    error: rosterError,
-    refetch: refetchRoster,
-    isFetching: fetchingRoster,
-  } = useAttendance(groupId, date);
-  const save = useSaveAttendance();
-  const [marks, setMarks] = useState<Record<string, AttendanceStatus>>({});
+  const search = Route.useSearch();
 
-  // INFINITE LOOP FIX. `const { data: roster = [] }` built a NEW array on every
-  // render whenever `data` was undefined, so the effect below saw a changed
-  // dependency, called setMarks, re-rendered, and repeated -- React bailed out
-  // with "Maximum update depth exceeded". Memoising keeps one stable reference.
-  const roster = useMemo(() => data ?? EMPTY_ROSTER, [data]);
+  const today = useMemo(() => toIso(new Date()), []);
+  // Deep-link values seed the initial state only. After mount the controls own
+  // it, so navigating the calendar does not fight the URL it arrived with.
+  // `safeDate` at the point of use, not just at the router boundary: an
+  // unparseable anchor reaches Intl.format and throws RangeError, which the
+  // dashboard error boundary turns into "Impossible de charger ces données" --
+  // a load failure message for something that never loaded anything.
+  const [anchor, setAnchor] = useState(safeDate(search.date, today));
+  const [view, setView] = useState<CalendarView>(search.view ?? "week");
+  const [toMarkOnly, setToMarkOnly] = useState(search.toMark ?? false);
+  const [teacherFilter, setTeacherFilter] = useState<string>(ALL);
+  const [openSession, setOpenSession] = useState<SessionInstance | null>(null);
+  /** Agenda's focused day. Only used on narrow screens. */
+  const [agendaDay, setAgendaDay] = useState(safeDate(search.date, today));
+  /** A `?session=` target is consumed once, so closing the drawer is not undone. */
+  const [pendingKey, setPendingKey] = useState<string | null>(search.session ?? null);
 
-  // Seed the local marks from whatever is already saved.
-  //
-  // Keyed on group+date as well as the roster: switching group used to leave the
-  // previous group's marks on screen, because a student enrolled in both groups
-  // kept their entry in `marks`. The teacher then saved marks they never made.
+  const isAdmin = user?.role === "admin";
+  const teachersQuery = useTeachers();
+
+  // Narrow screens get a single-day agenda instead of a seven-column week: at
+  // ~390px each column would be ~50px, which cannot hold a group name.
+  const useAgenda = isMobile && view === "week";
+
+  const win = useMemo(() => windowFor(anchor, view), [anchor, view]);
+
+  // Keep the agenda's day inside the visible week when the week changes, so
+  // stepping forward lands on a day that is actually on screen.
   useEffect(() => {
-    const next: Record<string, AttendanceStatus> = {};
-    roster.forEach((r) => {
-      if (r.status) next[r.studentId] = r.status;
-    });
-    setMarks(next);
-  }, [roster, groupId, date]);
+    if (!useAgenda) return;
+    const weekStart = startOfWeek(anchor);
+    if (agendaDay < weekStart || agendaDay > win.to) setAgendaDay(weekStart);
+  }, [anchor, useAgenda, agendaDay, win.to]);
+
+  const { sessions, counters, isLoading, isFetching, error, refetch } = useSessions(
+    {
+      from: win.from,
+      to: win.to,
+      teacherId: isAdmin && teacherFilter !== ALL ? teacherFilter : null,
+      toMarkOnly,
+    },
+    today,
+  );
 
   /**
-   * Whether the selected group actually meets on the selected date.
+   * Open the deep-linked session once its data has loaded.
    *
-   * The database enforces this (`validate_attendance_occurrence`), but finding
-   * out only after marking a whole class is a poor trade. Checking the group's
-   * own schedule up front lets the UI say so before any work is lost.
+   * The target cannot be opened before `useSessions` resolves, because the drawer
+   * needs the full `SessionInstance`, not just the key. Clearing `pendingKey`
+   * whether or not a match was found is deliberate: a link to a session that no
+   * longer exists (group deleted, schedule changed) must not retry forever, and
+   * the calendar around it is still useful.
    */
-  const selectedGroup = scoped.find((g) => g.id === groupId);
-  const meetsOnDate = useMemo(() => {
-    if (!selectedGroup || !date) return true;
-    if (selectedGroup.schedules.length === 0) return true; // still being set up
-    const weekday = new Date(`${date}T00:00:00`).getDay();
-    const inTerm =
-      (!selectedGroup.startDate || date >= selectedGroup.startDate) &&
-      (!selectedGroup.endDate || date <= selectedGroup.endDate);
-    return inTerm && selectedGroup.schedules.some((s) => s.weekday === weekday);
-  }, [selectedGroup, date]);
+  useEffect(() => {
+    if (!pendingKey || sessions.length === 0) return;
+    const target = sessions.find((s) => s.key === pendingKey);
+    if (target) setOpenSession(target);
+    setPendingKey(null);
+  }, [pendingKey, sessions]);
+
+  /** Subjects actually present in the period, for the legend. */
+  const legend = useMemo(() => {
+    const seen = new Map<string, { label: string; color: string }>();
+    for (const s of sessions) {
+      const id = s.subjectId ?? s.subjectKey ?? "none";
+      if (seen.has(id)) continue;
+      seen.set(id, {
+        label: subjectLabel(s.subjectKey, s.subjectName),
+        color: subjectColor(s.subjectColor, s.subjectKey),
+      });
+    }
+    return [...seen.values()];
+  }, [sessions, subjectLabel]);
 
   /**
-   * Marks that differ from what is stored.
+   * Where the open session sits in the VISIBLE list.
    *
-   * Sending only these means two people editing the same register merge instead
-   * of colliding: each writes the rows they actually touched, rather than
-   * stamping the whole roster and silently overwriting the other's work.
+   * Derived from `sessions`, so the queue follows the active filters: with
+   * "à pointer seulement" on, prev/next walks exactly the outstanding registers.
    */
-  const changed = useMemo(() => {
-    const saved = new Map(roster.map((r) => [r.studentId, r.status]));
-    return Object.entries(marks).filter(
-      ([studentId, status]) => saved.has(studentId) && saved.get(studentId) !== status,
-    );
-  }, [marks, roster]);
+  const queue = useMemo(() => {
+    if (!openSession) return undefined;
+    const index = sessions.findIndex((sn) => sn.key === openSession.key);
+    return index < 0 ? undefined : { index, total: sessions.length };
+  }, [openSession, sessions]);
 
-  /** Unsaved work exists -- used to warn before it would be discarded. */
-  const isDirty = changed.length > 0;
-
-  /**
-   * Runs a change that would replace the roster, confirming first if marks are
-   * unsaved. Switching group or date silently discarded a marked register
-   * before; a teacher who had just marked 25 students lost all of it with no
-   * indication it was ever at risk.
-   */
-  const guardedChange = (apply: () => void) => {
-    if (isDirty && !window.confirm(t("entity.attendance.discardChanges"))) return;
-    apply();
-  };
-
-  const submit = () => {
-    if (!groupId || !user) return;
-    // Refuse before the round trip: the database would reject this anyway, and
-    // failing here keeps the teacher's marks on screen instead of losing them
-    // to a generic error toast.
-    if (!meetsOnDate) {
-      toast.error(t("entity.attendance.notScheduled"));
-      return;
-    }
-    const entries = changed.map(([studentId, status]) => ({ studentId, status }));
-    if (entries.length === 0) {
-      toast.error(t("entity.attendance.nothingChanged"));
-      return;
-    }
-    save.mutate(
-      { groupId, date, markedBy: user.id, entries },
-      {
-        onSuccess: () => notifySuccess("entity.attendance.saved"),
-        onError: (e) => notifyError(e),
-      },
-    );
-  };
+  const periodLabel = usePeriodLabel(anchor, view, win);
 
   return (
-    <>
-      <PageHeader
-        title={t("entity.attendance.title")}
-        description={t("entity.attendance.description")}
-        actions={
-          <Button
-            className="rounded-xl"
-            onClick={submit}
-            // Nothing changed means nothing to write. Disabling also removes the
-            // "did my click register?" ambiguity after a successful save.
-            disabled={!groupId || save.isPending || !meetsOnDate || !isDirty}
-          >
-            {save.isPending && <Loader2 className="size-4 animate-spin" aria-hidden />}
-            {save.isPending ? t("ui.saving") : t("entity.attendance.save")}
-          </Button>
-        }
-      />
+    <div className="space-y-4">
+      {/* Header: title dominant, counters right-aligned and semantic. */}
+      <header className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+        <div className="min-w-0 space-y-1">
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+            {t("entity.session.title")}
+          </h1>
+          <p className="text-sm text-muted-foreground">{t("entity.session.description")}</p>
+        </div>
+        <dl className="flex shrink-0 items-stretch gap-4 sm:gap-5">
+          <Counter value={counters.total} label={t("entity.session.counter.total")} />
+          <Counter
+            value={counters.toMark}
+            label={t("entity.session.counter.toMark")}
+            tone="accent"
+          />
+          <Counter
+            value={counters.overdue}
+            label={t("entity.session.counter.overdue")}
+            tone="danger"
+          />
+        </dl>
+      </header>
 
-      <div className="surface-card grid gap-4 p-5 sm:grid-cols-2">
-        <div className="space-y-2">
-          <Label>{t("entity.attendance.group")}</Label>
-          {loadingGroups ? (
-            <Skeleton className="h-11 rounded-xl" />
-          ) : (
-            <Select value={groupId ?? ""} onValueChange={(v) => guardedChange(() => setGroupId(v))}>
-              <SelectTrigger className="h-11 w-full rounded-xl">
-                <SelectValue placeholder={t("entity.attendance.chooseGroup")} />
+      {/* One coherent control bar rather than floating pills. */}
+      <div className="surface-card flex flex-wrap items-center gap-x-3 gap-y-2.5 px-3 py-2.5">
+        <div className="flex items-center gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-8 rounded-lg"
+            aria-label={t("entity.session.previous")}
+            onClick={() => setAnchor((a) => step(a, view, -1))}
+          >
+            {/* Chevrons are physical glyphs, so they swap under RTL to keep
+                "previous" pointing at the start edge. */}
+            <ChevronLeft className="size-4 rtl:hidden" aria-hidden />
+            <ChevronRight className="hidden size-4 rtl:block" aria-hidden />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-8 rounded-lg"
+            aria-label={t("entity.session.next")}
+            onClick={() => setAnchor((a) => step(a, view, 1))}
+          >
+            <ChevronRight className="size-4 rtl:hidden" aria-hidden />
+            <ChevronLeft className="hidden size-4 rtl:block" aria-hidden />
+          </Button>
+        </div>
+
+        <p
+          data-testid="period-label"
+          className="min-w-0 truncate text-[15px] font-semibold capitalize tracking-tight sm:text-base"
+        >
+          {periodLabel}
+        </p>
+
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8 rounded-lg text-xs"
+          onClick={() => {
+            setAnchor(today);
+            setAgendaDay(today);
+          }}
+        >
+          {t("entity.session.today")}
+        </Button>
+
+        <div className="ms-auto flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant={toMarkOnly ? "default" : "outline"}
+            size="sm"
+            aria-pressed={toMarkOnly}
+            className="h-8 rounded-lg text-xs"
+            onClick={() => setToMarkOnly((v) => !v)}
+          >
+            {t("entity.session.toMarkOnly")}
+          </Button>
+
+          {isAdmin && (
+            <Select value={teacherFilter} onValueChange={setTeacherFilter}>
+              <SelectTrigger className="h-8 w-auto min-w-36 max-w-52 rounded-lg text-xs">
+                <SelectValue placeholder={t("entity.session.teacherFilter")} />
               </SelectTrigger>
               <SelectContent>
-                {scoped.map((g) => (
-                  <SelectItem key={g.id} value={g.id}>
-                    {g.name} — {subjectLabel(g.subjectKey, g.subjectName)}
+                <SelectItem value={ALL}>{t("entity.session.allTeachers")}</SelectItem>
+                {(teachersQuery.data ?? []).map((teacher) => (
+                  <SelectItem key={teacher.id} value={teacher.id}>
+                    {teacher.fullName}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           )}
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="att-date">{t("entity.attendance.sessionDate")}</Label>
-          <Input
-            id="att-date"
-            type="date"
-            className="h-11 rounded-xl"
-            value={date}
-            onChange={(e) => {
-              const next = e.target.value;
-              guardedChange(() => setDate(next));
-            }}
-          />
+
+          {/* Segmented control: inset track, active pill lifted. */}
+          <div className="flex rounded-lg bg-muted p-0.5">
+            {(["week", "month"] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                aria-pressed={view === v}
+                onClick={() => setView(v)}
+                className={cn(
+                  "focus-ring rounded-[0.35rem] px-2.5 py-1 text-xs font-medium transition-colors",
+                  view === v
+                    ? "bg-card text-foreground shadow-soft"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {t(v === "week" ? "entity.session.viewWeek" : "entity.session.viewMonth")}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Say it before the teacher marks a class, not after the save fails. */}
-      {groupId && !meetsOnDate && (
-        <div role="alert" className="surface-alert flex items-start gap-3 px-4 py-3 text-sm">
-          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-accent" aria-hidden />
-          <div>
-            <p className="font-medium">{t("entity.attendance.notScheduled")}</p>
-            <p className="text-muted-foreground">
-              {t("entity.attendance.notScheduledHint", {
-                days: (selectedGroup?.schedules ?? [])
-                  .map((s) => weekdayLabel(s.weekday, t))
-                  .join(", "),
-              })}
+      {error ? (
+        <ErrorState error={error} onRetry={refetch} isRetrying={isFetching} />
+      ) : isLoading ? (
+        <Skeleton className="h-112 rounded-2xl" />
+      ) : (
+        <>
+          {sessions.length === 0 && (
+            <p className="surface-panel px-4 py-3 text-sm text-muted-foreground">
+              {toMarkOnly
+                ? t("entity.session.emptyPeriodFiltered")
+                : t("entity.session.emptyPeriod")}
             </p>
-          </div>
-        </div>
+          )}
+
+          {useAgenda ? (
+            <AgendaView
+              anchor={anchor}
+              selected={agendaDay}
+              onSelect={setAgendaDay}
+              sessions={sessions}
+              today={today}
+              onOpen={setOpenSession}
+            />
+          ) : view === "week" ? (
+            <WeekView anchor={anchor} sessions={sessions} today={today} onOpen={setOpenSession} />
+          ) : (
+            <MonthView anchor={anchor} sessions={sessions} today={today} onOpen={setOpenSession} />
+          )}
+
+          {legend.length > 0 && (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-1">
+              {legend.map((s) => (
+                <span
+                  key={s.label}
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground"
+                >
+                  <span
+                    className="size-2.5 rounded-[3px]"
+                    style={{ backgroundColor: s.color }}
+                    aria-hidden
+                  />
+                  {s.label}
+                </span>
+              ))}
+            </div>
+          )}
+        </>
       )}
 
-      {groupsError ? (
-        <ErrorState
-          error={groupsError}
-          onRetry={() => void refetchGroups()}
-          isRetrying={fetchingGroups}
-        />
-      ) : rosterError ? (
-        <ErrorState
-          error={rosterError}
-          onRetry={() => void refetchRoster()}
-          isRetrying={fetchingRoster}
-        />
-      ) : !groupId ? (
-        <EmptyState
-          icon={CalendarCheck}
-          title={t("entity.attendance.noGroupSelected")}
-          description={t("entity.attendance.chooseGroupDescription")}
-        />
-      ) : isLoading ? (
-        <div className="space-y-3">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-14 rounded-xl" />
-          ))}
-        </div>
-      ) : roster.length === 0 ? (
-        <EmptyState
-          icon={CalendarCheck}
-          title={t("entity.attendance.noStudents")}
-          description={t("entity.attendance.noStudentsDescription")}
-        />
-      ) : (
-        <ul className="space-y-2">
-          {roster.map((r) => (
-            <li
-              key={r.studentId}
-              className="surface-card flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
-            >
-              <span className="font-medium">{r.fullName}</span>
-              <div className="flex flex-wrap gap-1.5">
-                {STATUSES.map((s) => (
-                  <Button
-                    key={s}
-                    type="button"
-                    size="sm"
-                    variant={marks[r.studentId] === s ? "default" : "outline"}
-                    className={cn("rounded-xl")}
-                    onClick={() => setMarks((p) => ({ ...p, [r.studentId]: s }))}
-                  >
-                    {t(LABEL_KEYS[s])}
-                  </Button>
-                ))}
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-    </>
+      <AttendanceDrawer
+        session={openSession}
+        window={win}
+        onClose={() => setOpenSession(null)}
+        {...(queue ? { queue } : {})}
+        onNavigate={(direction) => {
+          if (!openSession) return;
+          const i = sessions.findIndex((sn) => sn.key === openSession.key);
+          const next = sessions[i + direction];
+          if (next) setOpenSession(next);
+        }}
+      />
+    </div>
+  );
+}
+
+/** "3 – 9 août 2026" for a week, "août 2026" for a month. Locale-aware. */
+function usePeriodLabel(anchor: string, view: CalendarView, win: { from: string; to: string }) {
+  const { locale } = useI18n();
+  return useMemo(() => {
+    const tag = locale === "ar" ? "ar-DZ-u-nu-latn" : locale === "en" ? "en-GB" : "fr-FR";
+    if (view === "month") {
+      return new Intl.DateTimeFormat(tag, { month: "long", year: "numeric" }).format(
+        fromIso(anchor),
+      );
+    }
+    const start = fromIso(win.from);
+    const end = fromIso(win.to);
+    const dayFmt = new Intl.DateTimeFormat(tag, { day: "numeric" });
+    const fullFmt = new Intl.DateTimeFormat(tag, {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+    return start.getMonth() === end.getMonth()
+      ? `${dayFmt.format(start)} – ${fullFmt.format(end)}`
+      : `${new Intl.DateTimeFormat(tag, { day: "numeric", month: "short" }).format(start)} – ${fullFmt.format(end)}`;
+  }, [anchor, view, win.from, win.to, locale]);
+}
+
+function Counter({
+  value,
+  label,
+  tone = "neutral",
+}: {
+  value: number;
+  label: string;
+  tone?: "neutral" | "accent" | "danger";
+}) {
+  return (
+    <div className="border-s border-border ps-4 first:border-s-0 first:ps-0 sm:ps-5">
+      <dd
+        data-testid="counter-value"
+        className={cn(
+          "text-xl font-semibold tabular-nums leading-tight sm:text-2xl",
+          tone === "accent" && value > 0 && "text-accent",
+          tone === "danger" && value > 0 && "text-destructive",
+        )}
+      >
+        {value}
+      </dd>
+      <dt className="text-[11px] text-muted-foreground sm:text-xs">{label}</dt>
+    </div>
   );
 }

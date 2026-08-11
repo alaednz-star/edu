@@ -21,6 +21,8 @@ interface QuickAction {
   icon: LucideIcon;
   /** Surfaced as a count, e.g. registers still to complete. */
   badge?: number;
+  /** Deep-link params, so a badged action arrives already filtered. */
+  search?: Record<string, boolean | string> | undefined;
 }
 
 /**
@@ -40,7 +42,9 @@ export function QuickActions({ pendingCount }: { pendingCount: number }) {
       labelKey: "teacher.markAttendance",
       descriptionKey: "teacher.action.attendanceDesc",
       icon: ClipboardCheck,
-      ...(pendingCount > 0 ? { badge: pendingCount } : {}),
+      // The badge counts outstanding registers, so when there are any the link
+      // should arrive already filtered to them rather than to the whole week.
+      ...(pendingCount > 0 ? { badge: pendingCount, search: { toMark: true } } : {}),
     },
     {
       to: "/dashboard/my-groups",
@@ -72,6 +76,7 @@ export function QuickActions({ pendingCount }: { pendingCount: number }) {
           <li key={a.to}>
             <Link
               to={a.to}
+              {...(a.search ? { search: a.search } : {})}
               className={`focus-ring surface-action group flex items-center gap-3 px-1.5 ${
                 i === 0 ? "py-2.5" : "py-2"
               }`}

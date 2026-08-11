@@ -13,6 +13,7 @@ import { provisioning } from "./dicts/provisioning";
 import { lifecycle } from "./dicts/lifecycle";
 import { teacherWorkspace } from "./dicts/teacherWorkspace";
 import { subjects } from "./dicts/subjects";
+import { sessions } from "./dicts/sessions";
 
 export type { Dictionary } from "./types";
 
@@ -279,6 +280,7 @@ const modules = [
   lifecycle,
   teacherWorkspace,
   subjects,
+  sessions,
 ];
 
 function merge(locale: Locale, core: Dictionary): Dictionary {

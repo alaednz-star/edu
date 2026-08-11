@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { ClipboardCheck, DoorOpen, GraduationCap, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/hooks/use-i18n";
+import { sessionKey } from "@/features/school/session/session-key";
 import type { SessionOccurrence } from "@/features/school/schedule";
 
 export type SessionState = "upcoming" | "running" | "finished";
@@ -135,7 +136,13 @@ export function NextClassHero({
 
           <div className="flex flex-wrap gap-2 pt-1">
             <Button asChild className="h-11 rounded-xl px-5 shadow-sm">
-              <Link to="/dashboard/attendance">
+              <Link
+                to="/dashboard/attendance"
+                search={{
+                  date: occurrence.date,
+                  session: sessionKey(occurrence.group.id, occurrence.date),
+                }}
+              >
                 <ClipboardCheck className="size-4" aria-hidden />
                 {t("teacher.markAttendance")}
               </Link>
