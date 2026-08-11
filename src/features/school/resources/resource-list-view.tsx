@@ -47,6 +47,7 @@ import { useI18n } from "@/hooks/use-i18n";
 import { formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { subjectColor } from "@/features/school/session/subject-tint";
+import { RoleBadge } from "./role-badge";
 import { faceOf, formatBytes } from "./resource-icon";
 import type { CourseResources, ResourceRow } from "./types";
 
@@ -63,6 +64,7 @@ const VISIBILITY_STYLE: Record<string, string> = {
 interface FlatRow {
   resource: ResourceRow;
   groupName: string;
+  subjectName: string | null;
   chapterTitle: string;
   accent: string;
 }
@@ -95,7 +97,13 @@ export function ResourceListView({
       const accent = subjectColor(c.subjectColor, c.subjectKey);
       for (const ch of c.chapters) {
         for (const r of ch.resources) {
-          flat.push({ resource: r, groupName: c.groupName, chapterTitle: ch.title, accent });
+          flat.push({
+            resource: r,
+            groupName: c.groupName,
+            subjectName: c.subjectName,
+            chapterTitle: ch.title,
+            accent,
+          });
         }
       }
     }
@@ -168,11 +176,15 @@ export function ResourceListView({
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <SortHead label={t("resources.list.resource")} keyName="title" className="w-[34%]" />
-              <TableHead className="hidden w-[14%] lg:table-cell">
-                {t("resources.list.group")}
+              <SortHead label={t("resources.list.resource")} keyName="title" className="w-[30%]" />
+              <TableHead className="w-[10%]">{t("resources.dialog.role")}</TableHead>
+              {/* Groupe and Matière share a cell rather than taking a column each:
+                  ten columns overflowed at 1024px, and the subject is only ever read
+                  as a qualifier of the group it belongs to. */}
+              <TableHead className="hidden w-[16%] lg:table-cell">
+                {t("resources.list.group")} · {t("resources.hier.subject")}
               </TableHead>
-              <TableHead className="hidden w-[20%] xl:table-cell">
+              <TableHead className="hidden w-[18%] xl:table-cell">
                 {t("resources.list.chapter")}
               </TableHead>
               <SortHead
@@ -199,7 +211,7 @@ export function ResourceListView({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.map(({ resource: r, groupName, chapterTitle, accent }) => {
+            {rows.map(({ resource: r, groupName, subjectName, chapterTitle, accent }) => {
               const face = faceOf(r.kind, r.mimeType);
               const Icon = face.icon;
               return (
@@ -232,15 +244,29 @@ export function ResourceListView({
                           )}
                         </span>
                         {/* The columns hidden at this width fold into the subtitle,
-                            so nothing is lost -- it moves. */}
+                            so nothing is lost -- it moves. Group, subject and chapter
+                            must never vanish into a bare filename. */}
                         <span className="block truncate text-[11px] text-muted-foreground lg:hidden">
-                          {groupName} · {t(face.labelKey)}
+                          {[groupName, subjectName, chapterTitle, t(face.labelKey)]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </span>
+                        <span className="block truncate text-[11px] text-muted-foreground max-xl:hidden xl:hidden">
+                          {chapterTitle}
                         </span>
                       </span>
                     </button>
                   </TableCell>
-                  <TableCell className="hidden max-w-0 truncate text-xs text-muted-foreground lg:table-cell">
-                    {groupName}
+                  <TableCell className="align-middle">
+                    <RoleBadge role={r.role} />
+                  </TableCell>
+                  <TableCell className="hidden max-w-0 align-middle text-xs lg:table-cell">
+                    <span className="block truncate text-secondary-foreground">{groupName}</span>
+                    {subjectName && (
+                      <span className="block truncate text-[11px] text-muted-foreground">
+                        {subjectName}
+                      </span>
+                    )}
                   </TableCell>
                   <TableCell className="hidden max-w-0 truncate text-xs text-muted-foreground xl:table-cell">
                     {chapterTitle}
@@ -285,7 +311,7 @@ export function ResourceListView({
 
       {/* ---------- <768px: compact cards, same information ---------- */}
       <ul className="surface-card divide-y divide-border md:hidden">
-        {rows.map(({ resource: r, groupName, chapterTitle, accent }) => {
+        {rows.map(({ resource: r, groupName, subjectName, chapterTitle, accent }) => {
           const face = faceOf(r.kind, r.mimeType);
           const Icon = face.icon;
           return (
@@ -306,6 +332,7 @@ export function ResourceListView({
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-1.5">
+                    <RoleBadge role={r.role} />
                     <span className="min-w-0 text-sm font-medium [overflow-wrap:anywhere] line-clamp-2">
                       {r.title}
                     </span>
@@ -313,8 +340,10 @@ export function ResourceListView({
                       <Star className="size-3 shrink-0 fill-accent text-accent" aria-hidden />
                     )}
                   </span>
+                  {/* Group, subject and chapter stay on the card. A phone is exactly
+                      where "which course was this for?" is hardest to answer. */}
                   <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
-                    {groupName} · {chapterTitle}
+                    {[groupName, subjectName, chapterTitle].filter(Boolean).join(" · ")}
                   </span>
                   <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px]">
                     <span className="tabular-nums text-muted-foreground">

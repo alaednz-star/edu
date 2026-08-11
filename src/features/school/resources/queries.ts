@@ -12,14 +12,17 @@ import { useAuth } from "@/hooks/use-auth";
 import { currentAccessToken } from "@/integrations/supabase/access-token";
 import { assertUploadAllowedFn, signResourceUrlFn } from "./storage.functions";
 import type {
+  ChapterOption,
   ChapterRow,
   CourseResources,
   ResourceEventKind,
   ResourceKind,
+  ResourceRole,
   ResourceRow,
   ResourceStats,
   ResourceVisibility,
 } from "./types";
+import { roleWeight } from "./types";
 
 function must<T>(res: { data: T | null; error: { message: string } | null }): T {
   if (res.error) throw new Error(res.error.message);
@@ -38,6 +41,9 @@ export const resourceKeys = {
   root: ["resources"] as const,
   byGroup: (groupId: string | null) => ["resources", "group", groupId ?? "all"] as const,
   mine: (studentId: string) => ["resources", "student", studentId] as const,
+  /** Chapters of ONE group, for the pickers. Under the same root, so saving a
+   *  chapter invalidates this alongside everything else. */
+  chaptersOf: (groupId: string) => ["resources", "chapters-of", groupId] as const,
 };
 
 /* ------------------------------ DERIVATION ------------------------------ */
@@ -85,6 +91,7 @@ interface RawResource {
   mime_type: string | null;
   size_bytes: number | null;
   position: number;
+  role: string;
   pinned: boolean;
   allow_download: boolean;
   is_published: boolean;
@@ -105,6 +112,7 @@ function mapResource(r: RawResource): ResourceRow {
     mimeType: r.mime_type,
     sizeBytes: r.size_bytes,
     position: r.position,
+    role: r.role as ResourceRole,
     pinned: r.pinned,
     allowDownload: r.allow_download,
     isPublished: r.is_published,
@@ -115,7 +123,50 @@ function mapResource(r: RawResource): ResourceRow {
 }
 
 const RESOURCE_COLUMNS =
-  "id, chapter_id, group_id, title, description, kind, storage_path, url, mime_type, size_bytes, position, pinned, allow_download, is_published, published_at, created_at";
+  "id, chapter_id, group_id, title, description, kind, storage_path, url, mime_type, size_bytes, position, role, pinned, allow_download, is_published, published_at, created_at";
+
+/**
+ * Within a chapter: the teacher's manual order first, always.
+ *
+ * `position` is what drag-and-drop writes, so it has to win -- a teacher who drags
+ * the corrigé above the exercises meant it. The pedagogical role only breaks ties
+ * between resources that share a position, which is what new uploads do before
+ * anyone has arranged them. `resource_role_weight()` in the database encodes the
+ * same order for SQL; `createdAt` settles the rest so the sort is total.
+ */
+function compareResources(a: ResourceRow, b: ResourceRow): number {
+  return (
+    a.position - b.position ||
+    roleWeight(a.role) - roleWeight(b.role) ||
+    a.createdAt.localeCompare(b.createdAt)
+  );
+}
+
+/** `groups.teacher_id -> teachers -> profiles`, in one embed rather than a second
+ *  round trip. Shaped by PostgREST, so the nesting is what it is. */
+interface RawGroup {
+  name: string;
+  subjects: { key: string; name: string; color: string } | null;
+  levels: { name: string } | null;
+  teachers: { profiles: { full_name: string } | null } | null;
+}
+
+const COURSE_GROUP_EMBED =
+  "groups!inner(name, subjects(key, name, color), levels(name), teachers(profiles(full_name)))";
+
+function courseFrom(groupId: string, g: RawGroup | null): CourseResources {
+  return {
+    groupId,
+    groupName: g?.name ?? "\u2014",
+    subjectKey: g?.subjects?.key ?? null,
+    subjectName: g?.subjects?.name ?? null,
+    subjectColor: g?.subjects?.color ?? null,
+    levelName: g?.levels?.name ?? null,
+    teacherName: g?.teachers?.profiles?.full_name ?? null,
+    chapters: [],
+    resourceCount: 0,
+  };
+}
 
 /* ------------------------------ STAFF READ ------------------------------ */
 
@@ -133,8 +184,8 @@ export function useCourseResources(groupId?: string | null) {
       let q = supabase
         .from("chapters")
         .select(
-          `id, group_id, title, description, position, created_at,
-           groups!inner(name, subjects(key, name, color), levels(name)),
+          `id, group_id, title, description, position, created_at, is_published, published_at,
+           ${COURSE_GROUP_EMBED},
            resources(${RESOURCE_COLUMNS})`,
         )
         .order("position", { ascending: true });
@@ -159,25 +210,15 @@ export function useCourseResources(groupId?: string | null) {
 
       const byGroup = new Map<string, CourseResources>();
       for (const row of rows) {
-        const g = row.groups;
         let course = byGroup.get(row.group_id);
         if (!course) {
-          course = {
-            groupId: row.group_id,
-            groupName: g?.name ?? "—",
-            subjectKey: g?.subjects?.key ?? null,
-            subjectName: g?.subjects?.name ?? null,
-            subjectColor: g?.subjects?.color ?? null,
-            levelName: g?.levels?.name ?? null,
-            chapters: [],
-            resourceCount: 0,
-          };
+          course = courseFrom(row.group_id, row.groups as RawGroup | null);
           byGroup.set(row.group_id, course);
         }
         const resources = (row.resources ?? [])
           .map((r) => mapResource(r as RawResource))
           .map((r) => ({ ...r, openCount: openCounts.get(r.id) ?? 0 }))
-          .sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt));
+          .sort(compareResources);
         course.chapters.push({
           id: row.id,
           groupId: row.group_id,
@@ -190,6 +231,39 @@ export function useCourseResources(groupId?: string | null) {
         course.resourceCount += resources.length;
       }
       return [...byGroup.values()].sort((a, b) => a.groupName.localeCompare(b.groupName));
+    },
+  });
+}
+
+/**
+ * Chapters of ONE group, without their resources.
+ *
+ * The creation dialog needs exactly this and nothing more. It used to read the
+ * page's full `useCourseResources` result, which meant the chapter selector could
+ * only offer groups the page had already loaded -- and offered every chapter in the
+ * school in one flat list. Scoping the query to the chosen group is what makes
+ * "chapters of this group, and only this group" true rather than filtered-after.
+ *
+ * RLS still decides: a teacher gets nothing back for a group they do not manage.
+ */
+export function useChaptersByGroup(groupId: string | null | undefined) {
+  return useQuery({
+    queryKey: resourceKeys.chaptersOf(groupId ?? "none"),
+    enabled: !!groupId,
+    queryFn: async (): Promise<ChapterOption[]> => {
+      const rows = must(
+        await supabase
+          .from("chapters")
+          .select("id, group_id, title, position")
+          .eq("group_id", groupId as string)
+          .order("position", { ascending: true }),
+      );
+      return rows.map((r) => ({
+        id: r.id,
+        groupId: r.group_id,
+        title: r.title,
+        position: r.position,
+      }));
     },
   });
 }
@@ -214,7 +288,7 @@ export function useMyResources(studentId: string | undefined) {
           .from("chapters")
           .select(
             `id, group_id, title, description, position, created_at,
-             groups!inner(name, subjects(key, name, color), levels(name)),
+             ${COURSE_GROUP_EMBED},
              resources(${RESOURCE_COLUMNS})`,
           )
           .order("position", { ascending: true }),
@@ -233,22 +307,12 @@ export function useMyResources(studentId: string | undefined) {
         const resources = (row.resources ?? [])
           .map((r) => mapResource(r as RawResource))
           .map((r) => ({ ...r, openedByMe: seen.has(r.id) }))
-          .sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt));
+          .sort(compareResources);
         // RLS already dropped anything unpublished; an empty chapter is noise.
         if (resources.length === 0) continue;
-        const g = row.groups;
         let course = byGroup.get(row.group_id);
         if (!course) {
-          course = {
-            groupId: row.group_id,
-            groupName: g?.name ?? "—",
-            subjectKey: g?.subjects?.key ?? null,
-            subjectName: g?.subjects?.name ?? null,
-            subjectColor: g?.subjects?.color ?? null,
-            levelName: g?.levels?.name ?? null,
-            chapters: [],
-            resourceCount: 0,
-          };
+          course = courseFrom(row.group_id, row.groups as RawGroup | null);
           byGroup.set(row.group_id, course);
         }
         course.chapters.push({
@@ -288,14 +352,17 @@ export function useSaveChapter() {
       };
       if (input.id) {
         must(await supabase.from("chapters").update(payload).eq("id", input.id).select());
-      } else {
-        must(
-          await supabase
-            .from("chapters")
-            .insert({ ...payload, created_by: user?.id ?? null })
-            .select(),
-        );
+        return input.id;
       }
+      // Returns the new id so a caller that just created a chapter in order to file
+      // something into it can select it straight away.
+      const rows = must(
+        await supabase
+          .from("chapters")
+          .insert({ ...payload, created_by: user?.id ?? null })
+          .select("id"),
+      );
+      return rows[0]?.id ?? null;
     },
     onSuccess: () => void qc.invalidateQueries({ queryKey: resourceKeys.root }),
   });
@@ -337,6 +404,7 @@ export interface ResourceInput {
   url?: string | null | undefined;
   mimeType?: string | null | undefined;
   sizeBytes?: number | null | undefined;
+  role?: ResourceRole | undefined;
   pinned?: boolean | undefined;
   allowDownload?: boolean | undefined;
   isPublished?: boolean | undefined;
@@ -358,6 +426,7 @@ export function useSaveResource() {
         url: input.kind === "link" ? (input.url?.trim() ?? null) : null,
         mime_type: input.mimeType ?? null,
         size_bytes: input.sizeBytes ?? null,
+        role: input.role ?? "extra",
         pinned: input.pinned ?? false,
         allow_download: input.allowDownload ?? true,
         is_published: input.isPublished ?? false,

@@ -15,6 +15,7 @@ import { useActionFeedback } from "@/hooks/use-action-feedback";
 import { useSubjectLabel } from "@/features/school/subject-label";
 import { subjectColor } from "@/features/school/session/subject-tint";
 import { ChapterSection } from "@/features/school/resources/chapter-section";
+import { CourseIdentity } from "@/features/school/resources/course-identity";
 import { ResourcePreview } from "@/features/school/resources/resource-preview";
 import {
   signResourceUrl,
@@ -313,24 +314,23 @@ function MyResourcesPage() {
             );
             return (
               <div key={course.groupId} className="space-y-2">
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-1">
-                  <span
-                    className="size-2.5 rounded-[3px]"
-                    style={{ backgroundColor: accent }}
-                    aria-hidden
-                  />
-                  <h2 className="text-sm font-semibold tracking-tight">{course.groupName}</h2>
-                  <span className="text-xs text-muted-foreground">
-                    {subjectLabel(course.subjectKey, course.subjectName)}
-                  </span>
-                  {/* Only when there are several courses: with one, this repeats
-                      the figure already in the page header. */}
-                  {filtered.length > 1 && (
-                    <span className="ms-auto text-[11px] tabular-nums text-muted-foreground">
+                {/* The same identity block the teacher sees, so "3AS Sciences /
+                    Physique / M. Chaouch" means the same thing on both sides. A
+                    student needs the teacher's name most: it is how they refer to
+                    the course out loud. */}
+                <CourseIdentity
+                  className="px-1"
+                  groupName={course.groupName}
+                  subjectName={subjectLabel(course.subjectKey, course.subjectName)}
+                  teacherName={course.teacherName}
+                  levelName={course.levelName}
+                  accent={accent}
+                  trailing={
+                    <span className="text-[11px] tabular-nums text-muted-foreground">
                       {t("resources.student.progress", { opened, total })}
                     </span>
-                  )}
-                </div>
+                  }
+                />
                 <div className="space-y-2.5">
                   {course.chapters.map((ch) => (
                     <ChapterSection

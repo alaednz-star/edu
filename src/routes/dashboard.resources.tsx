@@ -23,6 +23,7 @@ import { useGroups } from "@/features/school/queries";
 import { useSubjectLabel } from "@/features/school/subject-label";
 import { subjectColor } from "@/features/school/session/subject-tint";
 import { ChapterSection, type DragBinding } from "@/features/school/resources/chapter-section";
+import { CourseIdentity } from "@/features/school/resources/course-identity";
 import { ResourceListView } from "@/features/school/resources/resource-list-view";
 import {
   insertRelative,
@@ -32,6 +33,7 @@ import {
 import {
   ChapterDialog,
   ResourceDialog,
+  type GroupOption,
   type ResourceFormValue,
 } from "@/features/school/resources/resource-dialogs";
 import { ResourcePreview } from "@/features/school/resources/resource-preview";
@@ -100,10 +102,13 @@ function ResourcesPage() {
     open: boolean;
     chapter?: ChapterRow | null;
   }>({ open: false });
+  /** `groupId` travels with `chapterId` so the dialog can show the locked context
+   *  without looking the chapter up in a list it no longer receives. */
   const [resourceDialog, setResourceDialog] = useState<{
     open: boolean;
     resource?: ResourceRow | null;
     chapterId?: string | undefined;
+    groupId?: string | undefined;
   }>({ open: false });
   const [preview, setPreview] = useState<ResourceRow | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
@@ -119,15 +124,34 @@ function ResourcesPage() {
   const deleteResource = useDeleteResource();
   const setVisibility = useSetResourceVisibility();
 
-  /** Groups the caller may add chapters to. RLS is the real gate; this is the picker. */
-  const myGroups = useMemo(() => {
+  /**
+   * Groups the caller may file content into, with the subject and teacher the group
+   * already carries. RLS is the real gate -- `can_manage_group` refuses a write
+   * either way; narrowing here is so a teacher is never OFFERED a colleague's group
+   * and then refused, which is how the flat selector used to mislead.
+   *
+   * `groups read` is staff-wide, so a teacher can see every group in the school.
+   * That is deliberate elsewhere in the product; for filing resources it would be
+   * a trap, hence the filter.
+   */
+  const myGroups = useMemo<GroupOption[]>(() => {
     const all = groupsQuery.data ?? [];
     const mine = user?.role === "teacher" ? all.filter((g) => g.teacherId === user.id) : all;
     return mine.map((g) => ({
       id: g.id,
-      name: `${g.name} — ${subjectLabel(g.subjectKey, g.subjectName)}`,
+      name: g.name,
+      subjectKey: g.subjectKey,
+      subjectName: subjectLabel(g.subjectKey, g.subjectName),
+      levelName: g.levelName,
+      teacherName: g.teacherName,
     }));
   }, [groupsQuery.data, user?.role, user?.id, subjectLabel]);
+
+  /** The group the page is scoped to, or undefined for "all groups". */
+  const selectedGroup = useMemo(
+    () => (courseFilter === ALL ? undefined : myGroups.find((g) => g.id === courseFilter)),
+    [courseFilter, myGroups],
+  );
 
   /**
    * Memoised, not `?? []` inline.
@@ -186,6 +210,24 @@ function ResourcesPage() {
     );
   };
 
+  /**
+   * "+ Créer un nouveau chapitre" from inside the resource dialog.
+   *
+   * Creates it in the SELECTED group -- never a global chapter -- and resolves the
+   * new id so the dialog can select it immediately. The page owns this because the
+   * page owns the mutations; the dialog stays free of them.
+   */
+  const createChapterInline = async (groupId: string, title: string): Promise<string | null> => {
+    try {
+      const id = await saveChapter.mutateAsync({ groupId, title, description: "" });
+      notifySuccess("resources.hier.chapterCreated");
+      return id;
+    } catch (e) {
+      notifyError(e);
+      return null;
+    }
+  };
+
   const submitResource = async (v: ResourceFormValue) => {
     try {
       let storagePath: string | null | undefined = v.id ? undefined : null;
@@ -193,12 +235,13 @@ function ResourcesPage() {
       let sizeBytes: number | null = null;
 
       if (v.kind === "file" && v.file) {
-        const groupId = courses
-          .flatMap((c) => c.chapters.map((ch) => ({ chapterId: ch.id, groupId: c.groupId })))
-          .find((x) => x.chapterId === v.chapterId)?.groupId;
-        if (!groupId) throw new Error(t("resources.dialog.chapter"));
+        // The group comes from the form, not from a lookup in the loaded courses.
+        // A chapter created moments ago -- or one in a group the page is not
+        // currently filtered to -- is not in that list, and the old lookup failed
+        // the upload outright.
+        if (!v.groupId) throw new Error(t("resources.hier.selectGroup"));
         setUploadProgress(0);
-        const up = await uploadResourceFile(groupId, v.file, setUploadProgress);
+        const up = await uploadResourceFile(v.groupId, v.file, setUploadProgress);
         storagePath = up.path;
         mimeType = up.mimeType;
         sizeBytes = up.size;
@@ -219,6 +262,7 @@ function ResourcesPage() {
               sizeBytes: sizeBytes ?? resourceDialog.resource?.sizeBytes ?? null,
             }
           : { url: v.url }),
+        role: v.role,
         pinned: v.pinned,
         allowDownload: v.allowDownload,
         isPublished: v.isPublished,
@@ -514,6 +558,21 @@ function ResourcesPage() {
     <>
       {header}
 
+      {/* Selected-group context. Stays on screen while the chapters below are
+          browsed, so the answer to "whose course is this?" never scrolls away.
+          "Tous les groupes" keeps the existing multi-course view untouched. */}
+      {selectedGroup && (
+        <div className="surface-card px-4 py-3">
+          <CourseIdentity
+            groupName={selectedGroup.name}
+            subjectName={selectedGroup.subjectName}
+            teacherName={selectedGroup.teacherName}
+            levelName={selectedGroup.levelName}
+            accent={subjectColor(null, selectedGroup.subjectKey)}
+          />
+        </div>
+      )}
+
       {/* Stats: the same "value above a quiet label" pattern as the attendance
           counters, so the two pages read as one product. */}
       {stats.chapters > 0 && (
@@ -552,10 +611,10 @@ function ResourcesPage() {
 
         <Select value={courseFilter} onValueChange={setCourseFilter}>
           <SelectTrigger className="h-9 w-auto min-w-40 max-w-56 rounded-lg text-xs">
-            <SelectValue placeholder={t("resources.allCourses")} />
+            <SelectValue placeholder={t("resources.hier.allGroups")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={ALL}>{t("resources.allCourses")}</SelectItem>
+            <SelectItem value={ALL}>{t("resources.hier.allGroups")}</SelectItem>
             {myGroups.map((g) => (
               <SelectItem key={g.id} value={g.id}>
                 {g.name}
@@ -628,7 +687,12 @@ function ResourcesPage() {
           courses={filtered}
           canEdit
           onEdit={(resource) =>
-            setResourceDialog({ open: true, resource, chapterId: resource.chapterId })
+            setResourceDialog({
+              open: true,
+              resource,
+              chapterId: resource.chapterId,
+              groupId: resource.groupId,
+            })
           }
           onDelete={removeResource}
           onToggleVisibility={(r) =>
@@ -646,21 +710,24 @@ function ResourcesPage() {
             const accent = subjectColor(course.subjectColor, course.subjectKey);
             return (
               <div key={course.groupId} className="space-y-2">
-                {/* Course heading: only when several courses are on screen, so a
-                    filtered single-course view is not needlessly nested. */}
-                {filtered.length > 1 && (
-                  <div className="flex items-center gap-2 px-1">
-                    <span
-                      className="size-2.5 rounded-[3px]"
-                      style={{ backgroundColor: accent }}
-                      aria-hidden
-                    />
-                    <h2 className="text-sm font-semibold tracking-tight">{course.groupName}</h2>
-                    <span className="text-xs text-muted-foreground">
-                      {subjectLabel(course.subjectKey, course.subjectName)}
+                {/* Course identity, always shown now -- not only when several are on
+                    screen. "Which course am I filing into?" is the question this
+                    phase exists to answer, and a single-course view needs it most. */}
+                <CourseIdentity
+                  className="px-1"
+                  groupName={course.groupName}
+                  subjectName={subjectLabel(course.subjectKey, course.subjectName)}
+                  teacherName={course.teacherName}
+                  levelName={course.levelName}
+                  accent={accent}
+                  trailing={
+                    <span className="text-[11px] tabular-nums text-muted-foreground">
+                      {course.chapters.length} {t("resources.stat.chapters")}
+                      {" · "}
+                      {course.resourceCount} {t("resources.stat.resources")}
                     </span>
-                  </div>
-                )}
+                  }
+                />
                 <div className="space-y-2.5">
                   {course.chapters.map((ch) => (
                     <ChapterSection
@@ -672,11 +739,18 @@ function ResourcesPage() {
                       // the teacher came for. "Liste" flattens instead.
                       defaultOpen
                       query={query}
-                      onAddResource={(chapterId) => setResourceDialog({ open: true, chapterId })}
+                      onAddResource={(chapterId) =>
+                        setResourceDialog({ open: true, chapterId, groupId: course.groupId })
+                      }
                       onEditChapter={(chapter) => setChapterDialog({ open: true, chapter })}
                       onDeleteChapter={removeChapter}
                       onEditResource={(resource) =>
-                        setResourceDialog({ open: true, resource, chapterId: resource.chapterId })
+                        setResourceDialog({
+                          open: true,
+                          resource,
+                          chapterId: resource.chapterId,
+                          groupId: resource.groupId,
+                        })
                       }
                       onDeleteResource={removeResource}
                       onToggleVisibility={(r) =>
@@ -702,7 +776,7 @@ function ResourcesPage() {
         open={chapterDialog.open}
         onOpenChange={(v) => setChapterDialog({ open: v })}
         chapter={chapterDialog.chapter}
-        courses={myGroups}
+        groups={myGroups}
         {...(courseFilter !== ALL ? { defaultGroupId: courseFilter } : {})}
         onSubmit={submitChapter}
         isPending={saveChapter.isPending}
@@ -712,8 +786,11 @@ function ResourcesPage() {
         open={resourceDialog.open}
         onOpenChange={(v) => setResourceDialog({ open: v })}
         resource={resourceDialog.resource}
-        courses={courses}
-        {...(resourceDialog.chapterId ? { defaultChapterId: resourceDialog.chapterId } : {})}
+        groups={myGroups}
+        {...(resourceDialog.chapterId && resourceDialog.groupId
+          ? { context: { groupId: resourceDialog.groupId, chapterId: resourceDialog.chapterId } }
+          : {})}
+        onCreateChapter={createChapterInline}
         onSubmit={submitResource}
         isPending={saveResource.isPending || uploadProgress !== null}
         uploadProgress={uploadProgress}

@@ -31,6 +31,7 @@ import { useI18n } from "@/hooks/use-i18n";
 import { formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { faceOf, formatBytes } from "./resource-icon";
+import { RoleBadge } from "./role-badge";
 import type { ChapterRow, ResourceRow } from "./types";
 
 const VISIBILITY_STYLE: Record<string, string> = {
@@ -383,6 +384,8 @@ function ResourceRowItem({
         </span>
         <span className="min-w-0 flex-1">
           <span className="flex min-w-0 items-center gap-1.5">
+            {/* What it is FOR, before what it is. */}
+            <RoleBadge role={resource.role} />
             <span className="min-w-0 text-sm font-medium [overflow-wrap:anywhere] line-clamp-2 sm:truncate">
               <Highlight text={resource.title} query={query} />
             </span>

@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Paperclip, Upload } from "lucide-react";
+import { FolderTree, Loader2, Paperclip, Plus, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -31,7 +31,71 @@ import {
 import { useI18n } from "@/hooks/use-i18n";
 import { cn } from "@/lib/utils";
 import { formatBytes } from "./resource-icon";
-import type { ChapterRow, CourseResources, ResourceKind, ResourceRow } from "./types";
+import { roleOptions } from "./resource-role";
+import { useChaptersByGroup } from "./queries";
+import type { ChapterRow, ResourceKind, ResourceRole, ResourceRow } from "./types";
+
+/**
+ * A group as the dialogs need it: the group plus everything DERIVED from it.
+ *
+ * Subject and teacher are read-only context, never inputs. `groups.subject_id` and
+ * `groups.teacher_id` are the single source of truth, so offering them as separate
+ * fields here would invent a second one that could disagree.
+ */
+export interface GroupOption {
+  id: string;
+  name: string;
+  subjectKey: string | null;
+  subjectName: string | null;
+  levelName: string | null;
+  teacherName: string | null;
+}
+
+/** One line of the hierarchy: a small caps label over its value. */
+function ContextLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {label}
+      </dt>
+      <dd className="truncate text-sm font-medium text-foreground">{value}</dd>
+    </div>
+  );
+}
+
+/**
+ * The locked hierarchy, shown when the dialog was opened from inside a chapter.
+ *
+ * Reading "Ajout dans / 3AS Sciences / Physique / Chapitre 1" is the whole point of
+ * the phase: the destination is stated rather than chosen, so there is nothing to
+ * get wrong. The chapter travels as `chapter_id`, which the database then uses to
+ * derive `group_id` itself.
+ */
+function AddingToPanel({
+  group,
+  chapterTitle,
+}: {
+  group: GroupOption | undefined;
+  chapterTitle: string | null;
+}) {
+  const { t } = useI18n();
+  return (
+    <section className="rounded-xl border border-border bg-muted/40 p-3">
+      <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-secondary-foreground">
+        <FolderTree className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+        {t("resources.hier.addingTo")}
+      </p>
+      <dl className="space-y-2">
+        <ContextLine label={t("resources.hier.group")} value={group?.name ?? "\u2014"} />
+        <ContextLine
+          label={t("resources.hier.subject")}
+          value={group?.subjectName ?? t("resources.hier.noSubject")}
+        />
+        <ContextLine label={t("resources.hier.chapter")} value={chapterTitle ?? "\u2014"} />
+      </dl>
+    </section>
+  );
+}
 
 /** Mirrors the bucket's `file_size_limit` and `MAX_FILE_BYTES` in
  *  `storage.server.ts`. Checked here only to fail fast with a readable message --
@@ -40,11 +104,16 @@ const MAX_BYTES = 250 * 1024 * 1024;
 
 /* ------------------------------- CHAPTER ------------------------------- */
 
+/**
+ * A chapter always belongs to exactly one group, so the group is the first field
+ * and the subject is shown beside it -- derived, not chosen. Preselected when the
+ * page is already scoped to a group, so the common path is one fewer decision.
+ */
 export function ChapterDialog({
   open,
   onOpenChange,
   chapter,
-  courses,
+  groups,
   defaultGroupId,
   onSubmit,
   isPending,
@@ -53,7 +122,7 @@ export function ChapterDialog({
   onOpenChange: (v: boolean) => void;
   /** Present when editing. */
   chapter?: ChapterRow | null | undefined;
-  courses: { id: string; name: string }[];
+  groups: GroupOption[];
   defaultGroupId?: string | undefined;
   onSubmit: (v: { id?: string; groupId: string; title: string; description: string }) => void;
   isPending: boolean;
@@ -64,19 +133,23 @@ export function ChapterDialog({
   const [description, setDescription] = useState("");
   const [error, setError] = useState<string | null>(null);
 
+  const group = useMemo(() => groups.find((g) => g.id === groupId), [groups, groupId]);
+
   // Reset per opening: a dialog reused across two chapters must not keep the
   // previous one's text.
   useEffect(() => {
     if (!open) return;
-    setGroupId(chapter?.groupId ?? defaultGroupId ?? courses[0]?.id ?? "");
+    setGroupId(
+      chapter?.groupId ?? defaultGroupId ?? (groups.length === 1 ? (groups[0]?.id ?? "") : ""),
+    );
     setTitle(chapter?.title ?? "");
     setDescription(chapter?.description ?? "");
     setError(null);
-  }, [open, chapter, defaultGroupId, courses]);
+  }, [open, chapter, defaultGroupId, groups]);
 
   const submit = () => {
+    if (!groupId) return setError(t("resources.hier.selectGroup"));
     if (!title.trim()) return setError(t("resources.dialog.titleRequired"));
-    if (!groupId) return setError(t("resources.dialog.chooseCourse"));
     onSubmit({ ...(chapter ? { id: chapter.id } : {}), groupId, title, description });
   };
 
@@ -93,23 +166,39 @@ export function ChapterDialog({
         </DialogHeader>
 
         <div className="space-y-4">
-          {!chapter && (
-            <div className="space-y-2">
-              <Label>{t("resources.dialog.course")}</Label>
-              <Select value={groupId} onValueChange={setGroupId}>
-                <SelectTrigger className="h-11 w-full rounded-xl">
-                  <SelectValue placeholder={t("resources.dialog.chooseCourse")} />
-                </SelectTrigger>
-                <SelectContent>
-                  {courses.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          <div className="space-y-3 rounded-xl border border-border bg-muted/40 p-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="chapter-group" className="text-xs font-semibold">
+                {t("resources.hier.group")}
+              </Label>
+              {chapter ? (
+                // Editing: the group is fixed. Reparenting a chapter would take its
+                // resources with it into another course.
+                <p className="truncate text-sm font-medium">{group?.name ?? "\u2014"}</p>
+              ) : (
+                <Select value={groupId} onValueChange={setGroupId}>
+                  <SelectTrigger id="chapter-group" className="h-11 w-full rounded-xl bg-card">
+                    <SelectValue placeholder={t("resources.hier.selectGroup")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {groups.map((g) => (
+                      <SelectItem key={g.id} value={g.id}>
+                        {g.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
-          )}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">{t("resources.hier.subject")}</Label>
+              <p className="truncate text-sm font-medium text-secondary-foreground">
+                {groupId
+                  ? (group?.subjectName ?? t("resources.hier.noSubject"))
+                  : t("resources.hier.noGroupSelected")}
+              </p>
+            </div>
+          </div>
 
           <div className="space-y-2">
             <Label htmlFor="chapter-title">{t("resources.dialog.chapterName")}</Label>
@@ -165,11 +254,16 @@ export function ChapterDialog({
 export interface ResourceFormValue {
   id?: string | undefined;
   chapterId: string;
+  /** The chapter's group. Carried so the upload path does not have to rediscover it
+   *  from a chapter list the dialog no longer receives. `chapter_id` remains the
+   *  authoritative relationship; this is only for choosing the storage folder. */
+  groupId: string;
   title: string;
   description: string;
   kind: ResourceKind;
   url: string;
   file: File | null;
+  role: ResourceRole;
   pinned: boolean;
   allowDownload: boolean;
   isPublished: boolean;
@@ -177,12 +271,25 @@ export interface ResourceFormValue {
   publishAt: string;
 }
 
+/**
+ * One dialog, two modes -- deliberately not two components.
+ *
+ * From inside a chapter (`context` given) the hierarchy is LOCKED and displayed:
+ * the teacher already said where this goes by clicking there. From the global
+ * button it is a GROUP -> CHAPTER cascade, because nothing has been said yet.
+ * Editing sits between the two: the group is fixed, the chapter can move within it.
+ *
+ * The old flat selector listed every chapter in the school as "Group . Chapter",
+ * which made filing into the wrong course a one-click mistake -- and a silent one,
+ * because the database derives `group_id` from whichever chapter was chosen.
+ */
 export function ResourceDialog({
   open,
   onOpenChange,
   resource,
-  courses,
-  defaultChapterId,
+  groups,
+  context,
+  onCreateChapter,
   onSubmit,
   isPending,
   uploadProgress,
@@ -190,15 +297,24 @@ export function ResourceDialog({
   open: boolean;
   onOpenChange: (v: boolean) => void;
   resource?: ResourceRow | null | undefined;
-  courses: CourseResources[];
-  defaultChapterId?: string | undefined;
+  /** Groups the caller may file into. RLS is the real gate; this is the picker. */
+  groups: GroupOption[];
+  /** Set when launched from a chapter: locks the destination. */
+  context?: { groupId: string; chapterId: string } | undefined;
+  /** Creates a chapter in the selected group and resolves its id. Owned by the
+   *  page, so this component keeps holding no mutations. */
+  onCreateChapter?: ((groupId: string, title: string) => Promise<string | null>) | undefined;
   onSubmit: (v: ResourceFormValue) => void;
   isPending: boolean;
   /** 0..1 while a file is uploading, null otherwise. */
   uploadProgress: number | null;
 }) {
   const { t, locale } = useI18n();
-  const [chapterId, setChapterId] = useState(defaultChapterId ?? "");
+  const [groupId, setGroupId] = useState("");
+  const [chapterId, setChapterId] = useState("");
+  const [role, setRole] = useState<ResourceRole>("notes");
+  const [newChapter, setNewChapter] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [kind, setKind] = useState<ResourceKind>("file");
@@ -210,17 +326,25 @@ export function ResourceDialog({
   const [publishAt, setPublishAt] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  const chapterOptions = useMemo(
-    () =>
-      courses.flatMap((c) =>
-        c.chapters.map((ch) => ({ id: ch.id, label: `${c.groupName} · ${ch.title}` })),
-      ),
-    [courses],
-  );
+  /** Chapters of the SELECTED group only -- not filtered from a global list. */
+  const chaptersQuery = useChaptersByGroup(open ? groupId || null : null);
+  const chapters = useMemo(() => chaptersQuery.data ?? [], [chaptersQuery.data]);
+
+  const group = useMemo(() => groups.find((g) => g.id === groupId), [groups, groupId]);
+  const chapterTitle = chapters.find((c) => c.id === chapterId)?.title ?? null;
+
+  /** Locked when opened from a chapter. Editing keeps the group but frees the
+   *  chapter, so a misfiled resource can be moved WITHIN its own course. */
+  const lockedGroup = !!context || !!resource;
+  const lockedChapter = !!context && !resource;
 
   useEffect(() => {
     if (!open) return;
-    setChapterId(resource?.chapterId ?? defaultChapterId ?? chapterOptions[0]?.id ?? "");
+    setGroupId(resource?.groupId ?? context?.groupId ?? "");
+    setChapterId(resource?.chapterId ?? context?.chapterId ?? "");
+    setRole(resource?.role ?? "notes");
+    setNewChapter(null);
+    setCreating(false);
     setTitle(resource?.title ?? "");
     setDescription(resource?.description ?? "");
     setKind(resource?.kind ?? "file");
@@ -232,11 +356,42 @@ export function ResourceDialog({
     // `datetime-local` wants `YYYY-MM-DDTHH:mm` with no zone.
     setPublishAt(resource?.publishedAt ? resource.publishedAt.slice(0, 16) : "");
     setError(null);
-  }, [open, resource, defaultChapterId, chapterOptions]);
+  }, [open, resource, context]);
+
+  /** Changing the group invalidates the chapter: keeping it would be exactly the
+   *  Group A + Chapter-of-Group-B pairing this dialog exists to prevent. */
+  const pickGroup = (id: string) => {
+    setGroupId(id);
+    setChapterId("");
+    setNewChapter(null);
+    setError(null);
+  };
+
+  const createChapter = async () => {
+    const title = (newChapter ?? "").trim();
+    if (!onCreateChapter || !groupId || !title) return;
+    setCreating(true);
+    try {
+      const id = await onCreateChapter(groupId, title);
+      if (id) {
+        setChapterId(id);
+        setNewChapter(null);
+      }
+    } finally {
+      setCreating(false);
+    }
+  };
 
   const submit = () => {
+    if (!groupId) return setError(t("resources.hier.selectGroup"));
+    if (!chapterId) return setError(t("resources.hier.selectChapter"));
     if (!title.trim()) return setError(t("resources.dialog.titleRequired"));
-    if (!chapterId) return setError(t("resources.dialog.chapter"));
+    // The chapter must belong to the chosen group. The database derives `group_id`
+    // from the chapter regardless, so a mismatch here would not corrupt anything --
+    // it would silently file the resource in the other group, which is worse.
+    if (chapters.length > 0 && !chapters.some((c) => c.id === chapterId)) {
+      return setError(t("resources.hier.selectChapter"));
+    }
     if (kind === "link") {
       // https only: a mixed-content http link would be blocked in the preview and
       // silently fail for the student.
@@ -249,11 +404,13 @@ export function ResourceDialog({
     onSubmit({
       ...(resource ? { id: resource.id } : {}),
       chapterId,
+      groupId,
       title,
       description,
       kind,
       url,
       file,
+      role,
       pinned,
       allowDownload,
       isPublished,
@@ -273,16 +430,153 @@ export function ResourceDialog({
         </DialogHeader>
 
         <div className="space-y-4">
+          {lockedChapter ? (
+            <AddingToPanel group={group} chapterTitle={chapterTitle} />
+          ) : (
+            <div className="space-y-4 rounded-xl border border-border bg-muted/40 p-3">
+              {/* GROUPE -- the primary selector, and the axis everything else hangs
+                  off. Fixed when editing: moving a resource to another course is a
+                  different operation from correcting its chapter. */}
+              <div className="space-y-1.5">
+                <Label htmlFor="res-group" className="text-xs font-semibold">
+                  {t("resources.hier.group")}
+                </Label>
+                {lockedGroup ? (
+                  <p className="truncate text-sm font-medium">{group?.name ?? "\u2014"}</p>
+                ) : (
+                  <Select value={groupId} onValueChange={pickGroup}>
+                    <SelectTrigger id="res-group" className="h-11 w-full rounded-xl bg-card">
+                      <SelectValue placeholder={t("resources.hier.selectGroup")} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {groups.map((g) => (
+                        <SelectItem key={g.id} value={g.id}>
+                          {g.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+
+              {/* MATIERE -- derived from the group, never an input. */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold">{t("resources.hier.subject")}</Label>
+                <p className="truncate text-sm font-medium text-secondary-foreground">
+                  {groupId
+                    ? (group?.subjectName ?? t("resources.hier.noSubject"))
+                    : t("resources.hier.noGroupSelected")}
+                </p>
+              </div>
+
+              {/* CHAPITRE -- only this group's, straight from a scoped query. */}
+              <div className="space-y-1.5">
+                <Label htmlFor="res-chapter" className="text-xs font-semibold">
+                  {t("resources.hier.chapter")}
+                </Label>
+                {!groupId ? (
+                  <p className="text-sm text-muted-foreground">
+                    {t("resources.hier.noGroupSelected")}
+                  </p>
+                ) : chaptersQuery.isPending ? (
+                  <div className="h-11 animate-pulse rounded-xl bg-muted" />
+                ) : chapters.length === 0 && newChapter === null ? (
+                  <div className="space-y-2">
+                    <p className="text-sm text-muted-foreground">
+                      {t("resources.hier.noChapters")}
+                    </p>
+                    {onCreateChapter && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="rounded-xl"
+                        onClick={() => setNewChapter("")}
+                      >
+                        <Plus className="size-4" aria-hidden />
+                        {t("resources.hier.createChapter")}
+                      </Button>
+                    )}
+                  </div>
+                ) : newChapter !== null ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Input
+                      autoFocus
+                      className="h-11 min-w-0 flex-1 rounded-xl bg-card"
+                      maxLength={160}
+                      placeholder={t("resources.hier.newChapterName")}
+                      value={newChapter}
+                      onChange={(e) => setNewChapter(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          void createChapter();
+                        }
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="rounded-xl"
+                      disabled={creating || !newChapter.trim()}
+                      onClick={() => void createChapter()}
+                    >
+                      {creating && <Loader2 className="size-4 animate-spin" aria-hidden />}
+                      {t("resources.hier.create")}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="rounded-xl"
+                      onClick={() => setNewChapter(null)}
+                    >
+                      {t("resources.hier.cancel")}
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Select value={chapterId} onValueChange={setChapterId}>
+                      <SelectTrigger id="res-chapter" className="h-11 w-full rounded-xl bg-card">
+                        <SelectValue placeholder={t("resources.hier.selectChapter")} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {chapters.map((c) => (
+                          <SelectItem key={c.id} value={c.id}>
+                            {c.title}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {onCreateChapter && !resource && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 rounded-lg px-2 text-xs"
+                        onClick={() => setNewChapter("")}
+                      >
+                        <Plus className="size-3.5" aria-hidden />
+                        {t("resources.hier.createChapter")}
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* TYPE DE RESSOURCE -- what it is for, not what format it is in. */}
           <div className="space-y-2">
-            <Label>{t("resources.dialog.chapter")}</Label>
-            <Select value={chapterId} onValueChange={setChapterId}>
-              <SelectTrigger className="h-11 w-full rounded-xl">
+            <Label htmlFor="res-role">{t("resources.dialog.role")}</Label>
+            <Select value={role} onValueChange={(v) => setRole(v as ResourceRole)}>
+              <SelectTrigger id="res-role" className="h-11 w-full rounded-xl">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {chapterOptions.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.label}
+                {roleOptions.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {t(o.labelKey)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -342,7 +636,14 @@ export function ResourceDialog({
                         ? t("resources.dialog.replaceFile")
                         : t("resources.dialog.chooseFile")}
                   </span>
-                  <span className="block text-xs text-muted-foreground">
+                  {/* Direction-neutral: "250 MB max" reorders to "MB max 250" under
+                      RTL unless it is isolated. Same fix as the file sizes on the
+                      rows and the time ranges in the calendar. */}
+                  <span
+                    className="block text-xs text-muted-foreground"
+                    dir="ltr"
+                    style={{ unicodeBidi: "isolate" }}
+                  >
                     {file
                       ? formatBytes(file.size, locale)
                       : formatBytes(MAX_BYTES, locale) + " max"}

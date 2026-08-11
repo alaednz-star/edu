@@ -191,15 +191,17 @@ try {
   // a byte moves. If that call were broken, uploading would fail outright -- so it
   // has to be exercised, not reasoned about.
   console.log("\n--- upload goes through the server quota check ---");
-  const addBtn = page
-    .locator("button")
-    .filter({ hasText: /ajouter une ressource|add a resource|إضافة مورد/i })
-    .first();
+  // Phase 2 made the destination explicit, so the shortest honest upload path is
+  // the CONTEXTUAL one: the add button inside a chapter carries group and chapter
+  // with it. The global cascade is covered by verify-resources-phase2.mjs.
+  // The per-chapter button is icon-only, so it is found by its aria-label, not by
+  // text. Scoped to the chapter card so the page-level button cannot be picked up.
+  const addBtn = page.locator('button[aria-label="Ajouter une ressource"]').last();
   if ((await addBtn.count()) === 0) {
     check("an add-resource button exists", false, "not found");
   } else {
     await addBtn.click();
-    await page.waitForTimeout(800);
+    await page.waitForTimeout(1200);
     serverCalls.length = 0;
     await page.setInputFiles("#res-file", {
       name: "e2e-uploaded.pdf",
