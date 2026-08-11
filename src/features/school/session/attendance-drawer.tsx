@@ -13,7 +13,7 @@
  * alike, which is the single choke point the guard needs.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { Link } from "@tanstack/react-router";
 import { Loader2, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,7 @@ import { useActionFeedback } from "@/hooks/use-action-feedback";
 import { useSubjectLabel } from "../subject-label";
 import type { AttendanceStatus } from "../types";
 import { useSaveSessionAttendance, useSessionRoster } from "./use-session-attendance";
+import { buildKeyMap, nextRow, targetRow } from "./keyboard";
 import { subjectTint } from "./subject-tint";
 import type { SessionInstance } from "./types";
 import { formatDate, initialsOf } from "@/lib/format";
@@ -80,6 +81,7 @@ export function AttendanceDrawer({ session, window: win, onClose }: Props) {
     const next: Record<string, AttendanceStatus> = {};
     for (const r of roster) if (r.status) next[r.studentId] = r.status;
     setMarks(next);
+    setFocusRow(-1);
   }, [roster, session?.key]);
 
   /** Only staff may write. RLS is the real boundary; this hides a dead control. */
@@ -96,6 +98,21 @@ export function AttendanceDrawer({ session, window: win, onClose }: Props) {
   const isDirty = changed.length > 0;
   const markedCount = Object.keys(marks).length;
   const missing = roster.length - markedCount;
+
+  /**
+   * Keyboard marking.
+   *
+   * A teacher marks the same 14 students every session; reaching for the mouse
+   * four times per student is the bulk of the work. `P A R E` mark the focused
+   * row and advance, arrows move, `Ctrl/Cmd+S` saves. The original spec listed
+   * this as optional -- it is cheap, and it is the difference between a register
+   * taking thirty seconds and taking three minutes.
+   *
+   * -1 means "nothing focused": the drawer does not steal focus on open, so the
+   * first keypress selects row 0 rather than acting on a row the user never
+   * chose.
+   */
+  const [focusRow, setFocusRow] = useState(-1);
 
   /** Every exit funnels through here, so none of them can discard silently. */
   const attemptClose = useCallback(() => {
@@ -148,6 +165,52 @@ export function AttendanceDrawer({ session, window: win, onClose }: Props) {
     );
   };
 
+  /** Latin shortcuts plus the localised codes. Rules live in `keyboard.ts`. */
+  const keyToStatus = useMemo(
+    () => buildKeyMap((status) => t(`entity.session.code.${status}`)),
+    [t],
+  );
+
+  /**
+   * Drawer-level key handling.
+   *
+   * Attached to the content element rather than to `window`, so it cannot fire
+   * while the drawer is closed or steal keys from another page. Typing inside a
+   * field is excluded -- there is no text input here today, but a future note
+   * field must not have its "a" swallowed as "absent".
+   */
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (!canEdit || roster.length === 0) return;
+    const el = e.target as HTMLElement | null;
+    if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
+    if (el?.isContentEditable) return;
+
+    // Save. Both Ctrl and Meta, so Windows and macOS behave the same.
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+      e.preventDefault();
+      if (isDirty && !save.isPending) submit();
+      return;
+    }
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      setFocusRow((i) => nextRow(i, e.key === "ArrowDown" ? 1 : -1, roster.length));
+      return;
+    }
+
+    const status = keyToStatus.get(e.key.toLowerCase());
+    if (!status) return;
+    e.preventDefault();
+    const idx = targetRow(focusRow, roster.length);
+    const row = roster[idx];
+    if (!row) return;
+    // Set, never toggle: a keyboard run down the roster should be idempotent, so
+    // pressing P twice on the same student must not clear them.
+    setMarks((prev) => ({ ...prev, [row.studentId]: status }));
+    setFocusRow(nextRow(idx, 1, roster.length));
+  };
+
   const open = session !== null;
 
   return (
@@ -166,6 +229,7 @@ export function AttendanceDrawer({ session, window: win, onClose }: Props) {
       <SheetContent
         side="right"
         className="flex w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-[30rem]"
+        onKeyDown={onKeyDown}
       >
         {session && (
           <>
@@ -204,9 +268,18 @@ export function AttendanceDrawer({ session, window: win, onClose }: Props) {
                   </div>
                 )}
 
-                <p className="border-b border-border px-5 py-2 text-[11px] text-muted-foreground">
-                  {t("entity.session.drawer.legend")}
-                </p>
+                <div className="border-b border-border px-5 py-2">
+                  <p className="text-[11px] text-muted-foreground">
+                    {t("entity.session.drawer.legend")}
+                  </p>
+                  {/* Shown only to those who can act on it, and only where a
+                      keyboard exists -- on a phone it would be noise. */}
+                  {canEdit && (
+                    <p className="mt-0.5 hidden text-[10.5px] text-muted-foreground/75 sm:block">
+                      {t("entity.session.drawer.keyboardHint")}
+                    </p>
+                  )}
+                </div>
 
                 {!canEdit && (
                   <p role="status" className="surface-alert mx-5 mt-4 px-4 py-3 text-sm">
@@ -219,10 +292,19 @@ export function AttendanceDrawer({ session, window: win, onClose }: Props) {
                     ? Array.from({ length: 4 }).map((_, i) => (
                         <Skeleton key={i} className="h-14 rounded-xl" />
                       ))
-                    : roster.map((r) => (
+                    : roster.map((r, i) => (
                         <div
                           key={r.studentId}
-                          className="flex items-center gap-3 rounded-xl border border-border/70 p-2.5"
+                          // The focused row needs a marker the keyboard user can
+                          // actually see; `focus-ring` is for real DOM focus, and
+                          // focus stays on the drawer, not on each row.
+                          className={cn(
+                            "flex items-center gap-3 rounded-xl border p-2.5 transition-colors",
+                            i === focusRow
+                              ? "border-primary/45 bg-primary-soft/45"
+                              : "border-border/70",
+                          )}
+                          aria-current={i === focusRow ? "true" : undefined}
                         >
                           <Avatar className="size-9 shrink-0">
                             {r.avatarUrl && <AvatarImage src={r.avatarUrl} alt="" />}
@@ -243,7 +325,10 @@ export function AttendanceDrawer({ session, window: win, onClose }: Props) {
                                   disabled={!canEdit}
                                   aria-pressed={active}
                                   aria-label={t(`entity.attendance.status${cap(s)}`)}
-                                  onClick={() => toggle(r.studentId, s)}
+                                  onClick={() => {
+                                    setFocusRow(i);
+                                    toggle(r.studentId, s);
+                                  }}
                                   className={cn(
                                     "focus-ring size-8 rounded-lg border text-xs font-semibold transition-colors",
                                     active

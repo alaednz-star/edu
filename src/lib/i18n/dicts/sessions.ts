@@ -71,6 +71,8 @@ export const sessions: DictionaryModule = {
     "entity.session.drawer.teacher": "Enseignant",
     "entity.session.drawer.enrolled": "Élèves inscrits",
     "entity.session.drawer.legend": "P Présent · A Absent · R Retard · E Excusé",
+    "entity.session.drawer.keyboardHint":
+      "Clavier : P A R E pour pointer et passer au suivant, ↑ ↓ pour naviguer, Ctrl+S pour enregistrer.",
 
     // Per-status short codes for the P/A/R/E buttons.
     "entity.session.code.present": "P",
@@ -134,6 +136,8 @@ export const sessions: DictionaryModule = {
     "entity.session.drawer.teacher": "الأستاذ",
     "entity.session.drawer.enrolled": "الطلاب المسجّلون",
     "entity.session.drawer.legend": "ح حاضر · غ غائب · م متأخر · ع معذور",
+    "entity.session.drawer.keyboardHint":
+      "لوحة المفاتيح: ح غ م ع للتسجيل والانتقال، ↑ ↓ للتنقل، Ctrl+S للحفظ.",
 
     "entity.session.code.present": "ح",
     "entity.session.code.absent": "غ",
@@ -196,6 +200,8 @@ export const sessions: DictionaryModule = {
     "entity.session.drawer.teacher": "Teacher",
     "entity.session.drawer.enrolled": "Enrolled students",
     "entity.session.drawer.legend": "P Present · A Absent · L Late · E Excused",
+    "entity.session.drawer.keyboardHint":
+      "Keyboard: P A L E to mark and advance, ↑ ↓ to move, Ctrl+S to save.",
 
     "entity.session.code.present": "P",
     "entity.session.code.absent": "A",
