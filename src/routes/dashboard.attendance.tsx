@@ -27,12 +27,14 @@ import {
   windowFor,
   type CalendarView,
 } from "@/features/school/session/calendar-range";
+import { parseAttendanceSearch, safeDate } from "@/features/school/session/deep-link";
 import type { SessionInstance } from "@/features/school/session/types";
 import { useSubjectLabel } from "@/features/school/subject-label";
 import { subjectColor } from "@/features/school/session/subject-tint";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/dashboard/attendance")({
+  validateSearch: parseAttendanceSearch,
   head: () => ({
     meta: [
       { title: "Présences — Madrasti" },
@@ -63,14 +65,24 @@ function AttendanceCalendarPage() {
   const subjectLabel = useSubjectLabel();
   const isMobile = useIsMobile();
 
+  const search = Route.useSearch();
+
   const today = useMemo(() => toIso(new Date()), []);
-  const [anchor, setAnchor] = useState(today);
-  const [view, setView] = useState<CalendarView>("week");
-  const [toMarkOnly, setToMarkOnly] = useState(false);
+  // Deep-link values seed the initial state only. After mount the controls own
+  // it, so navigating the calendar does not fight the URL it arrived with.
+  // `safeDate` at the point of use, not just at the router boundary: an
+  // unparseable anchor reaches Intl.format and throws RangeError, which the
+  // dashboard error boundary turns into "Impossible de charger ces données" --
+  // a load failure message for something that never loaded anything.
+  const [anchor, setAnchor] = useState(safeDate(search.date, today));
+  const [view, setView] = useState<CalendarView>(search.view ?? "week");
+  const [toMarkOnly, setToMarkOnly] = useState(search.toMark ?? false);
   const [teacherFilter, setTeacherFilter] = useState<string>(ALL);
   const [openSession, setOpenSession] = useState<SessionInstance | null>(null);
   /** Agenda's focused day. Only used on narrow screens. */
-  const [agendaDay, setAgendaDay] = useState(today);
+  const [agendaDay, setAgendaDay] = useState(safeDate(search.date, today));
+  /** A `?session=` target is consumed once, so closing the drawer is not undone. */
+  const [pendingKey, setPendingKey] = useState<string | null>(search.session ?? null);
 
   const isAdmin = user?.role === "admin";
   const teachersQuery = useTeachers();
@@ -98,6 +110,22 @@ function AttendanceCalendarPage() {
     },
     today,
   );
+
+  /**
+   * Open the deep-linked session once its data has loaded.
+   *
+   * The target cannot be opened before `useSessions` resolves, because the drawer
+   * needs the full `SessionInstance`, not just the key. Clearing `pendingKey`
+   * whether or not a match was found is deliberate: a link to a session that no
+   * longer exists (group deleted, schedule changed) must not retry forever, and
+   * the calendar around it is still useful.
+   */
+  useEffect(() => {
+    if (!pendingKey || sessions.length === 0) return;
+    const target = sessions.find((s) => s.key === pendingKey);
+    if (target) setOpenSession(target);
+    setPendingKey(null);
+  }, [pendingKey, sessions]);
 
   /** Subjects actually present in the period, for the legend. */
   const legend = useMemo(() => {

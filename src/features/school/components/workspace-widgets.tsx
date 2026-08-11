@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { SectionCard } from "@/components/common/section-card";
 import { EmptyState } from "@/components/common/empty-state";
 import { useI18n } from "@/hooks/use-i18n";
+import { sessionKey } from "@/features/school/session/session-key";
 import { weekdayLabel, type SessionOccurrence } from "@/features/school/schedule";
 import { sessionState } from "./next-class-hero";
 
@@ -147,7 +148,13 @@ export function TodayTimeline({
                       variant={state === "running" ? "default" : "outline"}
                       className="h-7 shrink-0 rounded-lg px-3 text-xs"
                     >
-                      <Link to="/dashboard/attendance">
+                      <Link
+                        to="/dashboard/attendance"
+                        search={{
+                          date: o.date,
+                          session: sessionKey(o.group.id, o.date),
+                        }}
+                      >
                         {state === "running"
                           ? t("teacher.markAttendance")
                           : t("teacher.completeNow")}
@@ -219,6 +226,7 @@ export function AttendancePending({
             <li key={`${o.group.id}-${o.date}-${o.slot.startTime}`}>
               <Link
                 to="/dashboard/attendance"
+                search={{ date: o.date, session: sessionKey(o.group.id, o.date) }}
                 className="focus-ring surface-alert group mb-1.5 flex items-center gap-3 py-2 ps-3 pe-2.5 transition-colors hover:bg-accent/12"
               >
                 <span className="min-w-0 flex-1">
@@ -249,6 +257,9 @@ export function AttendancePending({
       {occurrences.length > 4 && (
         <Link
           to="/dashboard/attendance"
+          // No single session here, so carry the INTENT instead: the filter that
+          // shows exactly the outstanding registers this widget is summarising.
+          search={{ toMark: true }}
           className="focus-ring mt-1 block rounded-lg py-1.5 text-center text-xs font-medium text-primary hover:underline"
         >
           {t("teacher.pendingSeeAll", { count: String(occurrences.length - 4) })}

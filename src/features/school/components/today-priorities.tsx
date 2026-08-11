@@ -3,6 +3,7 @@ import { AlertTriangle, ArrowRight, Bell, CheckCircle2, Clock } from "lucide-rea
 import type { LucideIcon } from "lucide-react";
 import { useI18n } from "@/hooks/use-i18n";
 import type { SessionOccurrence } from "@/features/school/schedule";
+import { sessionKey } from "@/features/school/session/session-key";
 
 type Urgency = "alert" | "soon" | "info";
 
@@ -14,6 +15,12 @@ interface Priority {
   detail: string;
   to: string;
   cta: string;
+  /**
+   * Deep-link search params, so a call to action that names a specific session
+   * lands ON that session instead of on the current week. See
+   * `AttendanceSearch` in the attendance route.
+   */
+  search?: Record<string, string> | undefined;
 }
 
 /**
@@ -49,6 +56,12 @@ export function TodayPriorities({
       detail: oldest ? t("teacher.priority.attendanceDetail", { group: oldest.group.name }) : "",
       to: "/dashboard/attendance",
       cta: t("teacher.completeNow"),
+      // This card names the oldest unmarked register, so send the teacher
+      // straight to it with the drawer open -- the copy is specific and the
+      // destination should match.
+      ...(oldest
+        ? { search: { date: oldest.date, session: sessionKey(oldest.group.id, oldest.date) } }
+        : {}),
     });
   }
 
@@ -124,6 +137,7 @@ export function TodayPriorities({
             <Link
               to={p.to}
               {...(p.id === "next" && nextClass ? { params: { groupId: nextClass.group.id } } : {})}
+              {...(p.search ? { search: p.search } : {})}
               className={`focus-ring group flex h-full items-center gap-3 px-3.5 py-3 transition-transform hover:-translate-y-0.5 motion-reduce:transform-none ${tone[p.urgency]}`}
             >
               <span
