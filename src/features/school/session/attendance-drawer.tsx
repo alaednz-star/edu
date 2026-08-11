@@ -15,7 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { Link } from "@tanstack/react-router";
-import { Loader2, UserPlus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2, RotateCcw, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -47,9 +47,19 @@ interface Props {
   /** The calendar's active window, so the summary cache patch targets it. */
   window: { from: string; to: string };
   onClose: () => void;
+  /**
+   * Move to the previous/next session without leaving the drawer.
+   *
+   * A Saturday with four parallel groups meant close -> hunt for the next card ->
+   * click, four times over. The registers are a queue; the drawer should let the
+   * teacher walk it.
+   */
+  onNavigate?: ((direction: -1 | 1) => void) | undefined;
+  /** Position in the visible queue, e.g. "2 / 4". */
+  queue?: { index: number; total: number } | undefined;
 }
 
-export function AttendanceDrawer({ session, window: win, onClose }: Props) {
+export function AttendanceDrawer({ session, window: win, onClose, onNavigate, queue }: Props) {
   const { t, locale } = useI18n();
   const { user } = useAuth();
   const subjectLabel = useSubjectLabel();
@@ -96,6 +106,8 @@ export function AttendanceDrawer({ session, window: win, onClose }: Props) {
   }, [marks, roster]);
 
   const isDirty = changed.length > 0;
+  /** Ids Save would write. Drives the per-row unsaved marker. */
+  const changedIds = useMemo(() => new Set(changed.map(([id]) => id)), [changed]);
   const markedCount = Object.keys(marks).length;
   const missing = roster.length - markedCount;
 
@@ -114,6 +126,19 @@ export function AttendanceDrawer({ session, window: win, onClose }: Props) {
    */
   const [focusRow, setFocusRow] = useState(-1);
 
+  /**
+   * Moving to a sibling session is an EXIT too -- the roster is replaced, so
+   * unsaved marks would vanish exactly as they do on close. Same guard.
+   */
+  const attemptNavigate = useCallback(
+    (direction: -1 | 1) => {
+      if (!onNavigate) return;
+      if (isDirty && !globalThis.confirm(t("entity.session.drawer.discard"))) return;
+      onNavigate(direction);
+    },
+    [isDirty, onNavigate, t],
+  );
+
   /** Every exit funnels through here, so none of them can discard silently. */
   const attemptClose = useCallback(() => {
     if (isDirty && !globalThis.confirm(t("entity.session.drawer.discard"))) return;
@@ -127,6 +152,17 @@ export function AttendanceDrawer({ session, window: win, onClose }: Props) {
   };
 
   const reset = () => setMarks({});
+
+  /**
+   * Focus the first student with no status.
+   *
+   * "6 élèves sans statut" says how many but not WHERE; on a roster of 30 the
+   * remaining few are scattered. This answers "who is left?" in one press.
+   */
+  const jumpToUnmarked = () => {
+    const idx = roster.findIndex((r) => !marks[r.studentId]);
+    if (idx >= 0) setFocusRow(idx);
+  };
 
   const toggle = (studentId: string, status: AttendanceStatus) => {
     setMarks((prev) => {
@@ -233,7 +269,73 @@ export function AttendanceDrawer({ session, window: win, onClose }: Props) {
       >
         {session && (
           <>
-            <DrawerHeader session={session} locale={locale} subjectLabel={subjectLabel} />
+            {/* STICKY CONTEXT.
+                On a roster of 30 the header and the queue position scrolled out
+                of view, so halfway down you no longer knew which session you were
+                marking. Pinning them keeps that answer on screen while the roster
+                scrolls underneath. */}
+            <div className="sticky top-0 z-10 bg-card">
+              <DrawerHeader session={session} locale={locale} subjectLabel={subjectLabel} />
+
+              {/* Walk the queue of registers without leaving the drawer. */}
+              {onNavigate && queue && queue.total > 1 && (
+                <div className="flex items-center gap-2 border-b border-border bg-muted/35 px-5 py-1.5">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-7 rounded-lg"
+                    aria-label={t("entity.session.drawer.previousSession")}
+                    disabled={queue.index <= 0}
+                    onClick={() => attemptNavigate(-1)}
+                  >
+                    <ChevronLeft className="size-4 rtl:hidden" aria-hidden />
+                    <ChevronRight className="hidden size-4 rtl:block" aria-hidden />
+                  </Button>
+                  <span className="text-[11px] tabular-nums text-muted-foreground">
+                    {t("entity.session.drawer.queuePosition", {
+                      index: queue.index + 1,
+                      total: queue.total,
+                    })}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-7 rounded-lg"
+                    aria-label={t("entity.session.drawer.nextSession")}
+                    disabled={queue.index >= queue.total - 1}
+                    onClick={() => attemptNavigate(1)}
+                  >
+                    <ChevronRight className="size-4 rtl:hidden" aria-hidden />
+                    <ChevronLeft className="hidden size-4 rtl:block" aria-hidden />
+                  </Button>
+                  {/* Completion as a bar, not only a fraction: "18/24" needs
+                      arithmetic, a bar is read at a glance mid-lesson. */}
+                  {roster.length > 0 && (
+                    <div
+                      className="ms-auto h-1.5 w-24 overflow-hidden rounded-full bg-muted"
+                      role="progressbar"
+                      aria-valuenow={markedCount}
+                      aria-valuemin={0}
+                      aria-valuemax={roster.length}
+                      aria-label={t("entity.session.drawer.markedCount", {
+                        marked: markedCount,
+                        enrolled: roster.length,
+                      })}
+                    >
+                      <div
+                        className={cn(
+                          "h-full transition-all duration-300",
+                          missing === 0 ? "bg-success" : "bg-accent",
+                        )}
+                        style={{ inlineSize: `${(markedCount / roster.length) * 100}%` }}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
 
             {session.enrolled === 0 ? (
               <ZeroEnrollment t={t} />
@@ -259,7 +361,25 @@ export function AttendanceDrawer({ session, window: win, onClose }: Props) {
                     >
                       {t("entity.session.drawer.reset")}
                     </Button>
-                    <span className="ms-auto text-xs tabular-nums text-muted-foreground">
+                    {missing > 0 && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="rounded-xl text-accent hover:text-accent"
+                        onClick={jumpToUnmarked}
+                      >
+                        {t("entity.session.drawer.jumpToUnmarked", { count: missing })}
+                      </Button>
+                    )}
+                    <span
+                      className={cn(
+                        "ms-auto text-xs font-medium tabular-nums",
+                        missing === 0 && roster.length > 0
+                          ? "text-success"
+                          : "text-muted-foreground",
+                      )}
+                    >
                       {t("entity.session.drawer.markedCount", {
                         marked: markedCount,
                         enrolled: roster.length,
@@ -302,7 +422,12 @@ export function AttendanceDrawer({ session, window: win, onClose }: Props) {
                             "flex items-center gap-3 rounded-xl border p-2.5 transition-colors",
                             i === focusRow
                               ? "border-primary/45 bg-primary-soft/45"
-                              : "border-border/70",
+                              : !marks[r.studentId]
+                                ? // A dashed edge marks "no status yet", so the
+                                  // remaining students are findable by eye rather
+                                  // than only by the counter.
+                                  "border-dashed border-accent/40"
+                                : "border-border/70",
                           )}
                           aria-current={i === focusRow ? "true" : undefined}
                         >
@@ -312,8 +437,19 @@ export function AttendanceDrawer({ session, window: win, onClose }: Props) {
                               {initialsOf(r.fullName)}
                             </AvatarFallback>
                           </Avatar>
-                          <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                            {r.fullName}
+                          <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                            <span className="min-w-0 truncate text-sm font-medium">
+                              {r.fullName}
+                            </span>
+                            {/* Which rows Save would write -- "what did I just
+                                change?" without re-reading the roster. */}
+                            {changedIds.has(r.studentId) && (
+                              <span
+                                className="size-1.5 shrink-0 rounded-full bg-primary"
+                                title={t("entity.session.drawer.unsavedRow")}
+                                aria-label={t("entity.session.drawer.unsavedRow")}
+                              />
+                            )}
                           </span>
                           <div className="flex shrink-0 gap-1">
                             {STATUSES.map((s) => {
@@ -347,23 +483,62 @@ export function AttendanceDrawer({ session, window: win, onClose }: Props) {
                 </div>
 
                 {canEdit && (
-                  <footer className="sticky bottom-0 flex items-center gap-3 border-t border-border bg-card px-5 py-4">
-                    <span className={cn("text-xs", missing > 0 ? "text-accent" : "text-success")}>
-                      {missing > 0
-                        ? t("entity.session.drawer.missing", { count: missing })
-                        : t("entity.session.drawer.ready")}
-                    </span>
-                    <Button
-                      type="button"
-                      className="ms-auto rounded-xl"
-                      onClick={submit}
-                      disabled={!isDirty || save.isPending}
-                    >
-                      {save.isPending && <Loader2 className="size-4 animate-spin" aria-hidden />}
-                      {save.isPending
-                        ? t("entity.session.drawer.saving")
-                        : t("entity.session.drawer.save")}
-                    </Button>
+                  <footer className="sticky bottom-0 space-y-2 border-t border-border bg-card px-5 py-3.5">
+                    {/* A failed save keeps the marks on screen; say so, and put
+                        the retry where the failure was noticed rather than only
+                        in a toast that has already faded. */}
+                    {save.isError && (
+                      <div
+                        role="alert"
+                        className="surface-alert flex items-center gap-2 px-3 py-2 text-xs"
+                      >
+                        <span className="min-w-0 flex-1">
+                          {t("entity.session.drawer.saveFailed")}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 shrink-0 rounded-lg text-xs"
+                          onClick={submit}
+                          disabled={save.isPending}
+                        >
+                          <RotateCcw className="size-3.5" aria-hidden />
+                          {t("entity.session.drawer.retry")}
+                        </Button>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-3">
+                      <span
+                        className={cn(
+                          "min-w-0 text-xs",
+                          // Unsaved work outranks "who is left": it is the state
+                          // that can actually be LOST.
+                          isDirty
+                            ? "font-medium text-primary"
+                            : missing > 0
+                              ? "text-accent"
+                              : "text-success",
+                        )}
+                      >
+                        {isDirty
+                          ? t("entity.session.drawer.unsavedCount", { count: changed.length })
+                          : missing > 0
+                            ? t("entity.session.drawer.missing", { count: missing })
+                            : t("entity.session.drawer.ready")}
+                      </span>
+                      <Button
+                        type="button"
+                        className="ms-auto shrink-0 rounded-xl"
+                        onClick={submit}
+                        disabled={!isDirty || save.isPending}
+                      >
+                        {save.isPending && <Loader2 className="size-4 animate-spin" aria-hidden />}
+                        {save.isPending
+                          ? t("entity.session.drawer.saving")
+                          : t("entity.session.drawer.save")}
+                      </Button>
+                    </div>
                   </footer>
                 )}
               </>

@@ -141,6 +141,18 @@ function AttendanceCalendarPage() {
     return [...seen.values()];
   }, [sessions, subjectLabel]);
 
+  /**
+   * Where the open session sits in the VISIBLE list.
+   *
+   * Derived from `sessions`, so the queue follows the active filters: with
+   * "à pointer seulement" on, prev/next walks exactly the outstanding registers.
+   */
+  const queue = useMemo(() => {
+    if (!openSession) return undefined;
+    const index = sessions.findIndex((sn) => sn.key === openSession.key);
+    return index < 0 ? undefined : { index, total: sessions.length };
+  }, [openSession, sessions]);
+
   const periodLabel = usePeriodLabel(anchor, view, win);
 
   return (
@@ -316,7 +328,18 @@ function AttendanceCalendarPage() {
         </>
       )}
 
-      <AttendanceDrawer session={openSession} window={win} onClose={() => setOpenSession(null)} />
+      <AttendanceDrawer
+        session={openSession}
+        window={win}
+        onClose={() => setOpenSession(null)}
+        {...(queue ? { queue } : {})}
+        onNavigate={(direction) => {
+          if (!openSession) return;
+          const i = sessions.findIndex((sn) => sn.key === openSession.key);
+          const next = sessions[i + direction];
+          if (next) setOpenSession(next);
+        }}
+      />
     </div>
   );
 }

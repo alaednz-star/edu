@@ -71,6 +71,14 @@ export const sessions: DictionaryModule = {
     "entity.session.drawer.teacher": "Enseignant",
     "entity.session.drawer.enrolled": "Élèves inscrits",
     "entity.session.drawer.legend": "P Présent · A Absent · R Retard · E Excusé",
+    "entity.session.drawer.previousSession": "Séance précédente",
+    "entity.session.drawer.nextSession": "Séance suivante",
+    "entity.session.drawer.queuePosition": "Séance {index} sur {total}",
+    "entity.session.drawer.jumpToUnmarked": "Aller aux {count} non pointés",
+    "entity.session.drawer.unsavedRow": "Modification non enregistrée",
+    "entity.session.drawer.unsavedCount": "{count} modification(s) non enregistrée(s)",
+    "entity.session.drawer.saveFailed": "L'enregistrement a échoué. Vos saisies sont conservées.",
+    "entity.session.drawer.retry": "Réessayer",
     "entity.session.drawer.keyboardHint":
       "Clavier : P A R E pour pointer et passer au suivant, ↑ ↓ pour naviguer, Ctrl+S pour enregistrer.",
 
@@ -136,6 +144,14 @@ export const sessions: DictionaryModule = {
     "entity.session.drawer.teacher": "الأستاذ",
     "entity.session.drawer.enrolled": "الطلاب المسجّلون",
     "entity.session.drawer.legend": "ح حاضر · غ غائب · م متأخر · ع معذور",
+    "entity.session.drawer.previousSession": "الحصة السابقة",
+    "entity.session.drawer.nextSession": "الحصة التالية",
+    "entity.session.drawer.queuePosition": "الحصة {index} من {total}",
+    "entity.session.drawer.jumpToUnmarked": "الانتقال إلى {count} غير مسجّل",
+    "entity.session.drawer.unsavedRow": "تعديل غير محفوظ",
+    "entity.session.drawer.unsavedCount": "{count} تعديل غير محفوظ",
+    "entity.session.drawer.saveFailed": "فشل الحفظ. تم الاحتفاظ بإدخالاتك.",
+    "entity.session.drawer.retry": "إعادة المحاولة",
     "entity.session.drawer.keyboardHint":
       "لوحة المفاتيح: ح غ م ع للتسجيل والانتقال، ↑ ↓ للتنقل، Ctrl+S للحفظ.",
 
@@ -200,6 +216,14 @@ export const sessions: DictionaryModule = {
     "entity.session.drawer.teacher": "Teacher",
     "entity.session.drawer.enrolled": "Enrolled students",
     "entity.session.drawer.legend": "P Present · A Absent · L Late · E Excused",
+    "entity.session.drawer.previousSession": "Previous session",
+    "entity.session.drawer.nextSession": "Next session",
+    "entity.session.drawer.queuePosition": "Session {index} of {total}",
+    "entity.session.drawer.jumpToUnmarked": "Go to {count} unmarked",
+    "entity.session.drawer.unsavedRow": "Unsaved change",
+    "entity.session.drawer.unsavedCount": "{count} unsaved change(s)",
+    "entity.session.drawer.saveFailed": "Saving failed. Your entries are kept.",
+    "entity.session.drawer.retry": "Retry",
     "entity.session.drawer.keyboardHint":
       "Keyboard: P A L E to mark and advance, ↑ ↓ to move, Ctrl+S to save.",
 
