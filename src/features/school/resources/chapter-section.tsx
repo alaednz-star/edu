@@ -9,12 +9,15 @@
 import { useState } from "react";
 import {
   ChevronDown,
+  Copy,
   Download,
   Ellipsis,
   Eye,
   EyeOff,
   GripVertical,
   Pencil,
+  Pin,
+  PinOff,
   Plus,
   Star,
   Trash2,
@@ -49,6 +52,13 @@ export interface ChapterSectionProps {
   onAddResource: (chapterId: string) => void;
   onEditChapter: (chapter: ChapterRow) => void;
   onDeleteChapter: (chapter: ChapterRow) => void;
+  /** Publication and pinning of the chapter itself. Absent for the student view. */
+  onSetChapterVisibility?: ((chapter: ChapterRow, isPublished: boolean) => void) | undefined;
+  onSetChapterPinned?: ((chapter: ChapterRow, pinned: boolean) => void) | undefined;
+  onPublishAll?: ((chapter: ChapterRow, isPublished: boolean) => void) | undefined;
+  onDuplicateChapter?: ((chapter: ChapterRow) => void) | undefined;
+  onDuplicateResource?: ((resource: ResourceRow) => void) | undefined;
+  onSetResourcePinned?: ((resource: ResourceRow, pinned: boolean) => void) | undefined;
   onEditResource: (resource: ResourceRow) => void;
   onDeleteResource: (resource: ResourceRow) => void;
   onToggleVisibility: (resource: ResourceRow) => void;
@@ -108,6 +118,12 @@ export function ChapterSection({
   onAddResource,
   onEditChapter,
   onDeleteChapter,
+  onSetChapterVisibility,
+  onSetChapterPinned,
+  onPublishAll,
+  onDuplicateChapter,
+  onDuplicateResource,
+  onSetResourcePinned,
   onEditResource,
   onDeleteResource,
   onToggleVisibility,
@@ -117,7 +133,7 @@ export function ChapterSection({
   query,
   drag,
 }: ChapterSectionProps) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [open, setOpen] = useState(defaultOpen);
   const bodyId = `chapter-${chapter.id}`;
 
@@ -181,8 +197,32 @@ export function ChapterSection({
             aria-hidden
           />
           <span className="min-w-0 flex-1">
-            <span className="block text-sm font-semibold [overflow-wrap:anywhere] line-clamp-2 sm:truncate">
-              <Highlight text={chapter.title} query={query} />
+            <span className="flex min-w-0 items-center gap-1.5">
+              {/* Pinned and publication state belong on the chapter line: they are
+                  what a teacher scans for when something is not reaching students. */}
+              {chapter.pinned && (
+                <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-accent/30 bg-accent/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent">
+                  <Pin className="size-3" aria-hidden />
+                  {t("resources.chapter.pinnedBadge")}
+                </span>
+              )}
+              <span className="min-w-0 text-sm font-semibold [overflow-wrap:anywhere] line-clamp-2 sm:truncate">
+                <Highlight text={chapter.title} query={query} />
+              </span>
+              {canEdit && chapter.visibility !== "published" && (
+                <span
+                  className={cn(
+                    "shrink-0 whitespace-nowrap text-[11px] font-medium",
+                    VISIBILITY_STYLE[chapter.visibility],
+                  )}
+                >
+                  {chapter.visibility === "scheduled" && chapter.publishedAt
+                    ? t("resources.visibility.scheduledFor", {
+                        date: formatDate(chapter.publishedAt, locale),
+                      })
+                    : t(`resources.visibility.${chapter.visibility}`)}
+                </span>
+              )}
             </span>
             {chapter.description && (
               <span className="block truncate text-xs text-muted-foreground">
@@ -219,13 +259,43 @@ export function ChapterSection({
                   <Ellipsis className="size-4" aria-hidden />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuContent align="end" className="w-56">
                 <DropdownMenuItem onClick={() => onEditChapter(chapter)}>
                   <Pencil className="size-4" aria-hidden />
                   {t("resources.chapter.rename")}
                 </DropdownMenuItem>
+
+                {onSetChapterPinned && (
+                  <DropdownMenuItem onClick={() => onSetChapterPinned(chapter, !chapter.pinned)}>
+                    {chapter.pinned ? (
+                      <PinOff className="size-4" aria-hidden />
+                    ) : (
+                      <Pin className="size-4" aria-hidden />
+                    )}
+                    {t(chapter.pinned ? "resources.chapter.unpin" : "resources.chapter.pin")}
+                  </DropdownMenuItem>
+                )}
+
+                {onSetChapterVisibility && (
+                  <DropdownMenuItem
+                    onClick={() => onSetChapterVisibility(chapter, !chapter.isPublished)}
+                  >
+                    {chapter.isPublished ? (
+                      <EyeOff className="size-4" aria-hidden />
+                    ) : (
+                      <Eye className="size-4" aria-hidden />
+                    )}
+                    {t(
+                      chapter.isPublished
+                        ? "resources.chapter.hideChapter"
+                        : "resources.chapter.publishChapter",
+                    )}
+                  </DropdownMenuItem>
+                )}
+
                 {onMove && (
                   <>
+                    <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={() => onMove(chapter.id, -1)}>
                       {t("resources.chapter.moveUp")}
                     </DropdownMenuItem>
@@ -234,6 +304,31 @@ export function ChapterSection({
                     </DropdownMenuItem>
                   </>
                 )}
+
+                {onPublishAll && chapter.resources.length > 0 && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => onPublishAll(chapter, true)}>
+                      <Eye className="size-4" aria-hidden />
+                      {t("resources.chapter.publishAll")}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => onPublishAll(chapter, false)}>
+                      <EyeOff className="size-4" aria-hidden />
+                      {t("resources.chapter.hideAll")}
+                    </DropdownMenuItem>
+                  </>
+                )}
+
+                {onDuplicateChapter && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => onDuplicateChapter(chapter)}>
+                      <Copy className="size-4" aria-hidden />
+                      {t("resources.chapter.duplicate")}
+                    </DropdownMenuItem>
+                  </>
+                )}
+
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   className="text-destructive focus:text-destructive"
@@ -286,6 +381,8 @@ export function ChapterSection({
                   onToggleVisibility={onToggleVisibility}
                   onOpen={onOpenResource}
                   onDownload={onDownloadResource}
+                  {...(onDuplicateResource ? { onDuplicate: onDuplicateResource } : {})}
+                  {...(onSetResourcePinned ? { onSetPinned: onSetResourcePinned } : {})}
                 />
               ))}
             </ul>
@@ -308,6 +405,8 @@ function ResourceRowItem({
   onToggleVisibility,
   onOpen,
   onDownload,
+  onDuplicate,
+  onSetPinned,
 }: {
   resource: ResourceRow;
   accent: string;
@@ -320,6 +419,8 @@ function ResourceRowItem({
   onToggleVisibility: (r: ResourceRow) => void;
   onOpen: (r: ResourceRow) => void;
   onDownload: (r: ResourceRow) => void;
+  onDuplicate?: ((r: ResourceRow) => void) | undefined;
+  onSetPinned?: ((r: ResourceRow, pinned: boolean) => void) | undefined;
 }) {
   const { t, locale } = useI18n();
   const face = faceOf(resource.kind, resource.mimeType);
@@ -476,11 +577,27 @@ function ResourceRowItem({
                   <Ellipsis className="size-4" aria-hidden />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuContent align="end" className="w-52">
                 <DropdownMenuItem onClick={() => onEdit(resource)}>
                   <Pencil className="size-4" aria-hidden />
                   {t("resources.resource.edit")}
                 </DropdownMenuItem>
+                {onSetPinned && (
+                  <DropdownMenuItem onClick={() => onSetPinned(resource, !resource.pinned)}>
+                    {resource.pinned ? (
+                      <PinOff className="size-4" aria-hidden />
+                    ) : (
+                      <Pin className="size-4" aria-hidden />
+                    )}
+                    {t(resource.pinned ? "resources.chapter.unpin" : "resources.chapter.pin")}
+                  </DropdownMenuItem>
+                )}
+                {onDuplicate && (
+                  <DropdownMenuItem onClick={() => onDuplicate(resource)}>
+                    <Copy className="size-4" aria-hidden />
+                    {t("resources.resource.duplicate")}
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   className="text-destructive focus:text-destructive"

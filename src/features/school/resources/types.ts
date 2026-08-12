@@ -79,8 +79,28 @@ export interface ChapterRow {
   title: string;
   description: string | null;
   position: number;
+  /** Pinned chapters sort ahead of the rest, within their group. */
+  pinned: boolean;
+  isPublished: boolean;
+  publishedAt: string | null;
+  /** Derived from the two fields above, exactly as resources are. */
+  visibility: ResourceVisibility;
   createdAt: string;
   resources: ResourceRow[];
+}
+
+/**
+ * Chapter order for students and staff alike: pinned first, then the manual
+ * position, then title so the sort is total.
+ *
+ * Pinning deliberately does NOT reorder resources inside a chapter -- see
+ * `compareResources`. A pinned chapter is a chapter promoted; a pinned resource is
+ * a resource surfaced in a separate rail. Conflating the two would mean a teacher
+ * could not pin something without also disturbing the reading order.
+ */
+export function compareChapters(a: ChapterRow, b: ChapterRow): number {
+  if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+  return a.position - b.position || a.title.localeCompare(b.title);
 }
 
 /**
@@ -95,6 +115,13 @@ export interface ChapterOption {
   groupId: string;
   title: string;
   position: number;
+}
+
+/** Where a bulk move or a duplication is going. Group travels with the chapter so
+ *  the destination can be validated without a second lookup. */
+export interface ResourceDestination {
+  groupId: string;
+  chapterId: string;
 }
 
 /** A group with its chapters -- the COURS -> CHAPITRE -> RESSOURCES spine. */

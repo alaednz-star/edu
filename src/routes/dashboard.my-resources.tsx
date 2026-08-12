@@ -91,11 +91,15 @@ function MyResourcesPage() {
    */
   const railsWorthwhile = allResources.length > 6;
 
-  /** Teacher-flagged -- the "don't miss this" rail. */
-  const important = useMemo(
-    () => (railsWorthwhile ? allResources.filter((r) => r.pinned).slice(0, 4) : []),
-    [allResources, railsWorthwhile],
-  );
+  /**
+   * Teacher-flagged -- the "don't miss this" rail.
+   *
+   * NOT gated behind `railsWorthwhile`, unlike the recent rail. Pinning is an
+   * explicit act by a teacher, and suppressing it because the course happens to be
+   * small would silently discard the signal. "Recent" is a heuristic and can be
+   * gated; "important" was chosen by a person.
+   */
+  const important = useMemo(() => allResources.filter((r) => r.pinned).slice(0, 4), [allResources]);
 
   /** Newest few, so "what changed since I last looked?" needs no scrolling. */
   const recent = useMemo(

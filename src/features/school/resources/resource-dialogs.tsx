@@ -124,13 +124,25 @@ export function ChapterDialog({
   chapter?: ChapterRow | null | undefined;
   groups: GroupOption[];
   defaultGroupId?: string | undefined;
-  onSubmit: (v: { id?: string; groupId: string; title: string; description: string }) => void;
+  onSubmit: (v: {
+    id?: string;
+    groupId: string;
+    title: string;
+    description: string;
+    pinned: boolean;
+    isPublished: boolean;
+    /** `datetime-local` string, or "" for immediate. */
+    publishAt: string;
+  }) => void;
   isPending: boolean;
 }) {
   const { t } = useI18n();
   const [groupId, setGroupId] = useState(defaultGroupId ?? "");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [pinned, setPinned] = useState(false);
+  const [isPublished, setPublished] = useState(true);
+  const [publishAt, setPublishAt] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const group = useMemo(() => groups.find((g) => g.id === groupId), [groups, groupId]);
@@ -144,13 +156,26 @@ export function ChapterDialog({
     );
     setTitle(chapter?.title ?? "");
     setDescription(chapter?.description ?? "");
+    setPinned(chapter?.pinned ?? false);
+    // A NEW chapter defaults to published: a teacher creating one is arranging
+    // material they intend to share. Editing keeps whatever it already was.
+    setPublished(chapter?.isPublished ?? true);
+    setPublishAt(chapter?.publishedAt ? chapter.publishedAt.slice(0, 16) : "");
     setError(null);
   }, [open, chapter, defaultGroupId, groups]);
 
   const submit = () => {
     if (!groupId) return setError(t("resources.hier.selectGroup"));
     if (!title.trim()) return setError(t("resources.dialog.titleRequired"));
-    onSubmit({ ...(chapter ? { id: chapter.id } : {}), groupId, title, description });
+    onSubmit({
+      ...(chapter ? { id: chapter.id } : {}),
+      groupId,
+      title,
+      description,
+      pinned,
+      isPublished,
+      publishAt,
+    });
   };
 
   return (
@@ -221,6 +246,35 @@ export function ChapterDialog({
               maxLength={2000}
               onChange={(e) => setDescription(e.target.value)}
             />
+          </div>
+
+          <div className="space-y-3 rounded-xl border border-border p-3">
+            <ToggleRow
+              id="chapter-pinned"
+              label={t("resources.chapter.pin")}
+              checked={pinned}
+              onChange={setPinned}
+            />
+            <ToggleRow
+              id="chapter-published"
+              label={t("resources.dialog.publishNow")}
+              checked={isPublished}
+              onChange={setPublished}
+            />
+            {isPublished && (
+              <div className="space-y-1.5">
+                <Label htmlFor="chapter-when" className="text-xs text-muted-foreground">
+                  {t("resources.dialog.scheduleFor")}
+                </Label>
+                <Input
+                  id="chapter-when"
+                  type="datetime-local"
+                  className="h-10 rounded-xl"
+                  value={publishAt}
+                  onChange={(e) => setPublishAt(e.target.value)}
+                />
+              </div>
+            )}
           </div>
 
           {error && (

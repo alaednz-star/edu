@@ -24,6 +24,8 @@ import { useSubjectLabel } from "@/features/school/subject-label";
 import { subjectColor } from "@/features/school/session/subject-tint";
 import { ChapterSection, type DragBinding } from "@/features/school/resources/chapter-section";
 import { CourseIdentity } from "@/features/school/resources/course-identity";
+import { ChapterDeleteDialog } from "@/features/school/resources/chapter-delete-dialog";
+import { DestinationDialog } from "@/features/school/resources/destination-dialog";
 import { ResourceListView } from "@/features/school/resources/resource-list-view";
 import {
   insertRelative,
@@ -38,21 +40,35 @@ import {
 } from "@/features/school/resources/resource-dialogs";
 import { ResourcePreview } from "@/features/school/resources/resource-preview";
 import {
+  findDuplicateFileName,
   signResourceUrl,
   statsFor,
   uploadResourceFile,
+  useBulkDeleteResources,
+  useBulkMoveResources,
+  useBulkSetVisibility,
   useCourseResources,
   useDeleteChapter,
   useDeleteResource,
+  useDuplicateChapter,
+  useDuplicateResource,
   useReorderChapters,
   useReorderResources,
   useSaveChapter,
   useSaveResource,
+  useSetChapterPinned,
+  useSetChapterResourcesVisibility,
+  useSetChapterVisibility,
+  useSetResourcePinned,
   useSetResourceVisibility,
   resourceKeys,
 } from "@/features/school/resources/queries";
 import { formatBytes } from "@/features/school/resources/resource-icon";
-import type { ChapterRow, ResourceRow } from "@/features/school/resources/types";
+import type {
+  ChapterRow,
+  ResourceDestination,
+  ResourceRow,
+} from "@/features/school/resources/types";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/dashboard/resources")({
@@ -110,6 +126,14 @@ function ResourcesPage() {
     chapterId?: string | undefined;
     groupId?: string | undefined;
   }>({ open: false });
+  /** Chapter pending deletion: the dialog decides what happens to its resources. */
+  const [deleting, setDeleting] = useState<ChapterRow | null>(null);
+  /** A move or a duplicate awaiting a destination. `rows` is what it will act on. */
+  const [destination, setDestination] = useState<{
+    open: boolean;
+    mode: "move" | "duplicate";
+    rows: ResourceRow[];
+  }>({ open: false, mode: "move", rows: [] });
   const [preview, setPreview] = useState<ResourceRow | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
 
@@ -123,6 +147,15 @@ function ResourcesPage() {
   const saveResource = useSaveResource();
   const deleteResource = useDeleteResource();
   const setVisibility = useSetResourceVisibility();
+  const setChapterVisibility = useSetChapterVisibility();
+  const setChapterPinned = useSetChapterPinned();
+  const setChapterResources = useSetChapterResourcesVisibility();
+  const duplicateChapter = useDuplicateChapter();
+  const duplicateResource = useDuplicateResource();
+  const setResourcePinned = useSetResourcePinned();
+  const bulkVisibility = useBulkSetVisibility();
+  const bulkMove = useBulkMoveResources();
+  const bulkDelete = useBulkDeleteResources();
 
   /**
    * Groups the caller may file content into, with the subject and teacher the group
@@ -197,9 +230,17 @@ function ResourcesPage() {
     groupId: string;
     title: string;
     description: string;
+    pinned: boolean;
+    isPublished: boolean;
+    publishAt: string;
   }) => {
     saveChapter.mutate(
-      { ...v, description: v.description },
+      {
+        ...v,
+        description: v.description,
+        // A local `datetime-local` value is stored as an instant.
+        publishedAt: v.publishAt ? new Date(v.publishAt).toISOString() : null,
+      },
       {
         onSuccess: () => {
           notifySuccess("resources.chapter.saved");
@@ -233,6 +274,36 @@ function ResourcesPage() {
       let storagePath: string | null | undefined = v.id ? undefined : null;
       let mimeType: string | null = null;
       let sizeBytes: number | null = null;
+
+      // Same filename, same chapter: ask, do not overwrite and do not quietly
+      // create a second indistinguishable row. Only on CREATE -- replacing a file
+      // on an existing resource is already an explicit act.
+      if (v.kind === "file" && v.file && !v.id) {
+        const clash = await findDuplicateFileName(v.chapterId, v.file.name);
+        if (clash) {
+          const replace = globalThis.confirm(
+            `${t("resources.upload.duplicateTitle")}
+${t("resources.upload.duplicateBody", {
+  name: v.file.name,
+})}
+
+${t("resources.upload.replace")} = OK
+${t("resources.upload.keepBoth")} = ${t("resources.dialog.cancel")}`,
+          );
+          if (replace) {
+            // Replace = delete the old row and its object, then continue creating
+            // the new one. Its `resource_events` go with it rather than being
+            // silently inherited, which would attribute old views to a new file.
+            await new Promise<void>((resolve, reject) => {
+              deleteResource.mutate(
+                { id: clash.id, storagePath: clash.storagePath },
+                { onSuccess: () => resolve(), onError: (e) => reject(e as Error) },
+              );
+            });
+          }
+          // Keeping both needs no action: the new row simply coexists.
+        }
+      }
 
       if (v.kind === "file" && v.file) {
         // The group comes from the form, not from a lookup in the loaded courses.
@@ -277,20 +348,133 @@ function ResourcesPage() {
     }
   };
 
-  const removeChapter = (chapter: ChapterRow) => {
-    if (
-      !globalThis.confirm(
-        t("resources.chapter.deleteConfirm", {
-          title: chapter.title,
-          count: chapter.resources.length,
-        }),
-      )
-    )
+  /**
+   * Chapter actions. Each one is a single mutation with the standard feedback pair;
+   * RLS refuses anything the caller does not manage, so there is no permission
+   * branching here -- an unauthorised attempt surfaces as an error, not as a
+   * silently ignored click.
+   */
+  const confirmDeleteChapter = (chapter: ChapterRow, resources: "cascade" | "unfile") => {
+    deleteChapter.mutate(
+      { id: chapter.id, groupId: chapter.groupId, resources },
+      {
+        onSuccess: () => {
+          notifySuccess(
+            resources === "unfile" ? "resources.chapter.deletedKept" : "resources.chapter.deleted",
+          );
+          setDeleting(null);
+        },
+        onError: notifyError,
+      },
+    );
+  };
+
+  const toggleChapterVisibility = (chapter: ChapterRow, isPublished: boolean) => {
+    setChapterVisibility.mutate(
+      // Publishing clears a pending schedule; the teacher meant now.
+      { id: chapter.id, isPublished, ...(isPublished ? { publishedAt: null } : {}) },
+      {
+        onSuccess: () =>
+          notifySuccess(isPublished ? "resources.chapter.published" : "resources.chapter.hidden"),
+        onError: notifyError,
+      },
+    );
+  };
+
+  const toggleChapterPinned = (chapter: ChapterRow, pinned: boolean) => {
+    setChapterPinned.mutate(
+      { id: chapter.id, pinned },
+      {
+        onSuccess: () =>
+          notifySuccess(pinned ? "resources.chapter.pinned" : "resources.chapter.unpinned"),
+        onError: notifyError,
+      },
+    );
+  };
+
+  const publishAll = (chapter: ChapterRow, isPublished: boolean) => {
+    setChapterResources.mutate(
+      { chapterId: chapter.id, isPublished },
+      {
+        onSuccess: () =>
+          notifySuccess(isPublished ? "resources.bulk.published" : "resources.bulk.hidden"),
+        onError: notifyError,
+      },
+    );
+  };
+
+  const copyChapter = (chapter: ChapterRow) => {
+    duplicateChapter.mutate(
+      { id: chapter.id },
+      {
+        onSuccess: () => notifySuccess("resources.chapter.duplicated"),
+        onError: notifyError,
+      },
+    );
+  };
+
+  const toggleResourcePinned = (r: ResourceRow, pinned: boolean) => {
+    setResourcePinned.mutate(
+      { id: r.id, pinned },
+      {
+        onSuccess: () =>
+          notifySuccess(pinned ? "resources.chapter.pinned" : "resources.chapter.unpinned"),
+        onError: notifyError,
+      },
+    );
+  };
+
+  /* ------------------------------ bulk ------------------------------ */
+
+  const runBulkVisibility = (ids: string[], isPublished: boolean) => {
+    bulkVisibility.mutate(
+      { ids, isPublished },
+      {
+        onSuccess: () =>
+          notifySuccess(isPublished ? "resources.bulk.published" : "resources.bulk.hidden"),
+        onError: notifyError,
+      },
+    );
+  };
+
+  const runBulkDelete = (rows: ResourceRow[]) => {
+    if (!globalThis.confirm(t("resources.bulk.deleteConfirm", { count: rows.length }))) return;
+    bulkDelete.mutate(
+      rows.map((r) => r.id),
+      {
+        onSuccess: () => notifySuccess("resources.bulk.deleted"),
+        onError: notifyError,
+      },
+    );
+  };
+
+  const confirmDestination = (dest: ResourceDestination) => {
+    const rows = destination.rows;
+    if (destination.mode === "duplicate") {
+      const first = rows[0];
+      if (!first) return;
+      duplicateResource.mutate(
+        { id: first.id, destination: dest },
+        {
+          onSuccess: () => {
+            notifySuccess("resources.resource.duplicated");
+            setDestination((d) => ({ ...d, open: false }));
+          },
+          onError: notifyError,
+        },
+      );
       return;
-    deleteChapter.mutate(chapter.id, {
-      onSuccess: () => notifySuccess("resources.chapter.deleted"),
-      onError: notifyError,
-    });
+    }
+    bulkMove.mutate(
+      { ids: rows.map((r) => r.id), destination: dest },
+      {
+        onSuccess: () => {
+          notifySuccess("resources.bulk.moved");
+          setDestination((d) => ({ ...d, open: false }));
+        },
+        onError: notifyError,
+      },
+    );
   };
 
   const removeResource = (r: ResourceRow) => {
@@ -703,6 +887,13 @@ function ResourcesPage() {
           }
           onOpen={openResource}
           onDownload={downloadResource}
+          onSetPinned={toggleResourcePinned}
+          onDuplicate={(resource) =>
+            setDestination({ open: true, mode: "duplicate", rows: [resource] })
+          }
+          onBulkVisibility={runBulkVisibility}
+          onBulkMove={(rows) => setDestination({ open: true, mode: "move", rows })}
+          onBulkDelete={runBulkDelete}
         />
       ) : (
         <div className="space-y-5">
@@ -743,7 +934,15 @@ function ResourcesPage() {
                         setResourceDialog({ open: true, chapterId, groupId: course.groupId })
                       }
                       onEditChapter={(chapter) => setChapterDialog({ open: true, chapter })}
-                      onDeleteChapter={removeChapter}
+                      onDeleteChapter={setDeleting}
+                      onSetChapterVisibility={toggleChapterVisibility}
+                      onSetChapterPinned={toggleChapterPinned}
+                      onPublishAll={publishAll}
+                      onDuplicateChapter={copyChapter}
+                      onSetResourcePinned={toggleResourcePinned}
+                      onDuplicateResource={(resource) =>
+                        setDestination({ open: true, mode: "duplicate", rows: [resource] })
+                      }
                       onEditResource={(resource) =>
                         setResourceDialog({
                           open: true,
@@ -794,6 +993,27 @@ function ResourcesPage() {
         onSubmit={submitResource}
         isPending={saveResource.isPending || uploadProgress !== null}
         uploadProgress={uploadProgress}
+      />
+
+      <ChapterDeleteDialog
+        chapter={deleting}
+        onCancel={() => setDeleting(null)}
+        onConfirm={confirmDeleteChapter}
+        isPending={deleteChapter.isPending}
+      />
+
+      <DestinationDialog
+        open={destination.open}
+        mode={destination.mode}
+        count={destination.rows.length}
+        groups={myGroups}
+        {...(destination.rows[0]?.groupId ? { defaultGroupId: destination.rows[0].groupId } : {})}
+        {...(destination.rows[0]?.chapterId
+          ? { excludeChapterId: destination.rows[0].chapterId }
+          : {})}
+        onOpenChange={(v) => setDestination((d) => ({ ...d, open: v }))}
+        onConfirm={confirmDestination}
+        isPending={bulkMove.isPending || duplicateResource.isPending}
       />
 
       <ResourcePreview resource={preview} onClose={() => setPreview(null)} canDownload />

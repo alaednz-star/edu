@@ -15,19 +15,25 @@
  * overflow or shrink every cell past readability.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
+  Copy,
   Download,
   Ellipsis,
   Eye,
   EyeOff,
+  FolderInput,
   Pencil,
+  Pin,
+  PinOff,
   Star,
   Trash2,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -77,6 +83,11 @@ export function ResourceListView({
   onToggleVisibility,
   onOpen,
   onDownload,
+  onDuplicate,
+  onSetPinned,
+  onBulkVisibility,
+  onBulkMove,
+  onBulkDelete,
 }: {
   courses: CourseResources[];
   canEdit: boolean;
@@ -85,8 +96,19 @@ export function ResourceListView({
   onToggleVisibility: (r: ResourceRow) => void;
   onOpen: (r: ResourceRow) => void;
   onDownload: (r: ResourceRow) => void;
+  onDuplicate?: ((r: ResourceRow) => void) | undefined;
+  onSetPinned?: ((r: ResourceRow, pinned: boolean) => void) | undefined;
+  /** Bulk handlers. Absent for the student view, which selects nothing. */
+  onBulkVisibility?: ((ids: string[], isPublished: boolean) => void) | undefined;
+  onBulkMove?: ((rows: ResourceRow[]) => void) | undefined;
+  onBulkDelete?: ((rows: ResourceRow[]) => void) | undefined;
 }) {
   const { t, locale } = useI18n();
+  /** Selection lives here, keyed by id, and is cleared whenever the underlying rows
+   *  change -- a selection that outlived a filter change would act on rows the
+   *  teacher can no longer see. */
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const bulkEnabled = canEdit && !!(onBulkVisibility || onBulkMove || onBulkDelete);
   // Newest first: "what did I add recently?" is the common reason to open this.
   const [sortKey, setSortKey] = useState<SortKey>("createdAt");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -123,6 +145,34 @@ export function ResourceListView({
       }
     });
   }, [courses, sortKey, sortDir]);
+
+  const visibleIds = useMemo(() => rows.map((r) => r.resource.id), [rows]);
+
+  // Drop anything no longer on screen. Runs on every render of a new row set, which
+  // is cheap and much safer than remembering ids across a filter change.
+  useEffect(() => {
+    setSelected((prev) => {
+      if (prev.size === 0) return prev;
+      const next = new Set([...prev].filter((id) => visibleIds.includes(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [visibleIds]);
+
+  const selectedRows = useMemo(
+    () => rows.filter((r) => selected.has(r.resource.id)).map((r) => r.resource),
+    [rows, selected],
+  );
+  const allSelected = visibleIds.length > 0 && selected.size === visibleIds.length;
+
+  const toggleOne = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(visibleIds));
+  const clearSelection = () => setSelected(new Set());
 
   const toggleSort = (key: SortKey) => {
     if (key === sortKey) {
@@ -171,11 +221,105 @@ export function ResourceListView({
 
   return (
     <>
+      {/* Floating action bar. Fixed to the viewport bottom so it stays reachable
+          while scrolling a long table, and it only exists while something is
+          selected -- an always-present empty bar is just lost space. */}
+      {bulkEnabled && selectedRows.length > 0 && (
+        <div
+          role="region"
+          aria-label={t("resources.bulk.selected", { count: selectedRows.length })}
+          className="fixed inset-x-0 bottom-4 z-40 mx-auto flex w-[min(46rem,calc(100%-2rem))] flex-wrap items-center gap-2 rounded-2xl border border-border bg-card p-2.5 shadow-lg"
+        >
+          <span className="ps-1.5 text-sm font-medium tabular-nums">
+            {t("resources.bulk.selected", { count: selectedRows.length })}
+          </span>
+          <div className="ms-auto flex flex-wrap items-center gap-1.5">
+            {onBulkVisibility && (
+              <>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="rounded-xl"
+                  onClick={() =>
+                    onBulkVisibility(
+                      selectedRows.map((r) => r.id),
+                      true,
+                    )
+                  }
+                >
+                  <Eye className="size-4" aria-hidden />
+                  {t("resources.bulk.publish")}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="rounded-xl"
+                  onClick={() =>
+                    onBulkVisibility(
+                      selectedRows.map((r) => r.id),
+                      false,
+                    )
+                  }
+                >
+                  <EyeOff className="size-4" aria-hidden />
+                  {t("resources.bulk.hide")}
+                </Button>
+              </>
+            )}
+            {onBulkMove && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="rounded-xl"
+                onClick={() => onBulkMove(selectedRows)}
+              >
+                <FolderInput className="size-4" aria-hidden />
+                {t("resources.bulk.move")}
+              </Button>
+            )}
+            {onBulkDelete && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="rounded-xl border-destructive/30 text-destructive hover:bg-destructive/5 hover:text-destructive"
+                onClick={() => onBulkDelete(selectedRows)}
+              >
+                <Trash2 className="size-4" aria-hidden />
+                {t("resources.bulk.delete")}
+              </Button>
+            )}
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              className="size-8 rounded-lg"
+              aria-label={t("resources.bulk.clear")}
+              onClick={clearSelection}
+            >
+              <X className="size-4" aria-hidden />
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* ---------- >=768px: the dense table ---------- */}
       <div className="surface-card hidden overflow-hidden md:block">
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
+              {bulkEnabled && (
+                <TableHead className="w-1 ps-3">
+                  <Checkbox
+                    checked={allSelected}
+                    onCheckedChange={toggleAll}
+                    aria-label={t("resources.bulk.selectAll")}
+                  />
+                </TableHead>
+              )}
               <SortHead label={t("resources.list.resource")} keyName="title" className="w-[30%]" />
               <TableHead className="w-[10%]">{t("resources.dialog.role")}</TableHead>
               {/* Groupe and Matière share a cell rather than taking a column each:
@@ -215,7 +359,19 @@ export function ResourceListView({
               const face = faceOf(r.kind, r.mimeType);
               const Icon = face.icon;
               return (
-                <TableRow key={r.id} className="group">
+                <TableRow
+                  key={r.id}
+                  className={cn("group", selected.has(r.id) && "bg-primary/[0.04]")}
+                >
+                  {bulkEnabled && (
+                    <TableCell className="ps-3 align-middle">
+                      <Checkbox
+                        checked={selected.has(r.id)}
+                        onCheckedChange={() => toggleOne(r.id)}
+                        aria-label={r.title}
+                      />
+                    </TableCell>
+                  )}
                   <TableCell className="max-w-0 align-middle">
                     <button
                       type="button"
@@ -300,6 +456,8 @@ export function ResourceListView({
                       onDelete={onDelete}
                       onToggleVisibility={onToggleVisibility}
                       onDownload={onDownload}
+                      {...(onDuplicate ? { onDuplicate } : {})}
+                      {...(onSetPinned ? { onSetPinned } : {})}
                     />
                   </TableCell>
                 </TableRow>
@@ -368,6 +526,8 @@ export function ResourceListView({
                 onDelete={onDelete}
                 onToggleVisibility={onToggleVisibility}
                 onDownload={onDownload}
+                {...(onDuplicate ? { onDuplicate } : {})}
+                {...(onSetPinned ? { onSetPinned } : {})}
               />
             </li>
           );
@@ -402,6 +562,8 @@ function RowActions({
   onDelete,
   onToggleVisibility,
   onDownload,
+  onDuplicate,
+  onSetPinned,
 }: {
   resource: ResourceRow;
   canEdit: boolean;
@@ -409,6 +571,8 @@ function RowActions({
   onDelete: (r: ResourceRow) => void;
   onToggleVisibility: (r: ResourceRow) => void;
   onDownload: (r: ResourceRow) => void;
+  onDuplicate?: ((r: ResourceRow) => void) | undefined;
+  onSetPinned?: ((r: ResourceRow, pinned: boolean) => void) | undefined;
 }) {
   const { t } = useI18n();
   return (
@@ -455,11 +619,27 @@ function RowActions({
                 <Ellipsis className="size-4" aria-hidden />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuContent align="end" className="w-52">
               <DropdownMenuItem onClick={() => onEdit(r)}>
                 <Pencil className="size-4" aria-hidden />
                 {t("resources.resource.edit")}
               </DropdownMenuItem>
+              {onSetPinned && (
+                <DropdownMenuItem onClick={() => onSetPinned(r, !r.pinned)}>
+                  {r.pinned ? (
+                    <PinOff className="size-4" aria-hidden />
+                  ) : (
+                    <Pin className="size-4" aria-hidden />
+                  )}
+                  {t(r.pinned ? "resources.chapter.unpin" : "resources.chapter.pin")}
+                </DropdownMenuItem>
+              )}
+              {onDuplicate && (
+                <DropdownMenuItem onClick={() => onDuplicate(r)}>
+                  <Copy className="size-4" aria-hidden />
+                  {t("resources.resource.duplicate")}
+                </DropdownMenuItem>
+              )}
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 className="text-destructive focus:text-destructive"

@@ -15,6 +15,7 @@ import type {
   ChapterOption,
   ChapterRow,
   CourseResources,
+  ResourceDestination,
   ResourceEventKind,
   ResourceKind,
   ResourceRole,
@@ -22,7 +23,16 @@ import type {
   ResourceStats,
   ResourceVisibility,
 } from "./types";
-import { roleWeight } from "./types";
+import { compareChapters, roleWeight } from "./types";
+
+/**
+ * Where resources go when their chapter is deleted but the teacher wants to keep
+ * them. Found-or-created per group by title, because there is no "system chapter"
+ * flag in the schema and inventing one for this would be a migration in service of
+ * a label. It behaves like any other chapter afterwards -- renameable, orderable --
+ * which is the honest consequence of that choice.
+ */
+export const UNFILED_CHAPTER_TITLE = "Non classé";
 
 function must<T>(res: { data: T | null; error: { message: string } | null }): T {
   if (res.error) throw new Error(res.error.message);
@@ -122,6 +132,38 @@ function mapResource(r: RawResource): ResourceRow {
   };
 }
 
+const CHAPTER_COLUMNS =
+  "id, group_id, title, description, position, pinned, is_published, published_at, created_at";
+
+/** PostgREST shape for a chapter row, resources embedded separately. */
+interface RawChapter {
+  id: string;
+  group_id: string;
+  title: string;
+  description: string | null;
+  position: number;
+  pinned: boolean;
+  is_published: boolean;
+  published_at: string | null;
+  created_at: string;
+}
+
+function mapChapter(c: RawChapter, resources: ResourceRow[]): ChapterRow {
+  return {
+    id: c.id,
+    groupId: c.group_id,
+    title: c.title,
+    description: c.description,
+    position: c.position,
+    pinned: c.pinned,
+    isPublished: c.is_published,
+    publishedAt: c.published_at,
+    visibility: visibilityOf(c.is_published, c.published_at),
+    createdAt: c.created_at,
+    resources,
+  };
+}
+
 const RESOURCE_COLUMNS =
   "id, chapter_id, group_id, title, description, kind, storage_path, url, mime_type, size_bytes, position, role, pinned, allow_download, is_published, published_at, created_at";
 
@@ -184,7 +226,7 @@ export function useCourseResources(groupId?: string | null) {
       let q = supabase
         .from("chapters")
         .select(
-          `id, group_id, title, description, position, created_at, is_published, published_at,
+          `${CHAPTER_COLUMNS},
            ${COURSE_GROUP_EMBED},
            resources(${RESOURCE_COLUMNS})`,
         )
@@ -219,17 +261,10 @@ export function useCourseResources(groupId?: string | null) {
           .map((r) => mapResource(r as RawResource))
           .map((r) => ({ ...r, openCount: openCounts.get(r.id) ?? 0 }))
           .sort(compareResources);
-        course.chapters.push({
-          id: row.id,
-          groupId: row.group_id,
-          title: row.title,
-          description: row.description,
-          position: row.position,
-          createdAt: row.created_at,
-          resources,
-        });
+        course.chapters.push(mapChapter(row as unknown as RawChapter, resources));
         course.resourceCount += resources.length;
       }
+      for (const course of byGroup.values()) course.chapters.sort(compareChapters);
       return [...byGroup.values()].sort((a, b) => a.groupName.localeCompare(b.groupName));
     },
   });
@@ -258,6 +293,9 @@ export function useChaptersByGroup(groupId: string | null | undefined) {
           .eq("group_id", groupId as string)
           .order("position", { ascending: true }),
       );
+      // No pinned-first here on purpose: a picker reads better in the teacher's own
+      // numbering than in the order the student sees.
+
       return rows.map((r) => ({
         id: r.id,
         groupId: r.group_id,
@@ -287,7 +325,7 @@ export function useMyResources(studentId: string | undefined) {
         await supabase
           .from("chapters")
           .select(
-            `id, group_id, title, description, position, created_at,
+            `${CHAPTER_COLUMNS},
              ${COURSE_GROUP_EMBED},
              resources(${RESOURCE_COLUMNS})`,
           )
@@ -315,17 +353,11 @@ export function useMyResources(studentId: string | undefined) {
           course = courseFrom(row.group_id, row.groups as RawGroup | null);
           byGroup.set(row.group_id, course);
         }
-        course.chapters.push({
-          id: row.id,
-          groupId: row.group_id,
-          title: row.title,
-          description: row.description,
-          position: row.position,
-          createdAt: row.created_at,
-          resources,
-        });
+        course.chapters.push(mapChapter(row as unknown as RawChapter, resources));
         course.resourceCount += resources.length;
       }
+      // Pinned chapters first: the teacher said this one matters.
+      for (const course of byGroup.values()) course.chapters.sort(compareChapters);
       return [...byGroup.values()].sort((a, b) => a.groupName.localeCompare(b.groupName));
     },
   });
@@ -343,12 +375,18 @@ export function useSaveChapter() {
       title: string;
       description?: string | null | undefined;
       position?: number | undefined;
+      pinned?: boolean | undefined;
+      isPublished?: boolean | undefined;
+      publishedAt?: string | null | undefined;
     }) => {
       const payload = {
         group_id: input.groupId,
         title: input.title.trim(),
         description: input.description?.trim() || null,
         ...(input.position !== undefined ? { position: input.position } : {}),
+        ...(input.pinned !== undefined ? { pinned: input.pinned } : {}),
+        ...(input.isPublished !== undefined ? { is_published: input.isPublished } : {}),
+        ...(input.publishedAt !== undefined ? { published_at: input.publishedAt } : {}),
       };
       if (input.id) {
         must(await supabase.from("chapters").update(payload).eq("id", input.id).select());
@@ -368,18 +406,226 @@ export function useSaveChapter() {
   });
 }
 
-export function useDeleteChapter() {
+/** Persists a reordered chapter list. One round trip per moved row. */
+/**
+ * Publish or hide a chapter, and with it everything inside.
+ *
+ * The chapter half of the AND rule: `resources read` requires the chapter to be
+ * live too, so hiding a chapter withdraws its resources without touching their own
+ * state. That matters -- a teacher who hides a chapter for a week and republishes it
+ * gets back exactly the mix of published, hidden and scheduled resources they had.
+ */
+export function useSetChapterVisibility() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from("chapters").delete().eq("id", id);
+    mutationFn: async (input: {
+      id: string;
+      isPublished: boolean;
+      /** ISO instant for a scheduled publication, null for immediate. */
+      publishedAt?: string | null | undefined;
+    }) => {
+      must(
+        await supabase
+          .from("chapters")
+          .update({
+            is_published: input.isPublished,
+            ...(input.publishedAt !== undefined ? { published_at: input.publishedAt } : {}),
+          })
+          .eq("id", input.id)
+          .select(),
+      );
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: resourceKeys.root }),
+  });
+}
+
+/** Pin or unpin a chapter. RLS (`chapters write`) is the gate. */
+export function useSetChapterPinned() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { id: string; pinned: boolean }) => {
+      must(
+        await supabase
+          .from("chapters")
+          .update({ pinned: input.pinned })
+          .eq("id", input.id)
+          .select(),
+      );
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: resourceKeys.root }),
+  });
+}
+
+/**
+ * "Publier tout" / "Masquer tout" for one chapter's resources.
+ *
+ * Publishing clears any pending schedule: the teacher pressing "publish everything"
+ * means now, and leaving a future `published_at` behind would silently keep some of
+ * it invisible.
+ */
+export function useSetChapterResourcesVisibility() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { chapterId: string; isPublished: boolean }) => {
+      must(
+        await supabase
+          .from("resources")
+          .update({
+            is_published: input.isPublished,
+            ...(input.isPublished ? { published_at: null } : {}),
+          })
+          .eq("chapter_id", input.chapterId)
+          .select("id"),
+      );
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: resourceKeys.root }),
+  });
+}
+
+/**
+ * Deletes a chapter, having first decided what happens to its resources.
+ *
+ * `resources.chapter_id` cascades, so a bare delete takes the files with it. The
+ * teacher is asked which they meant, and "keep them" reparents to the group's
+ * "Non classé" chapter BEFORE the delete -- the reparent has to succeed first, or a
+ * failure halfway would leave the resources deleted with nothing to show for it.
+ */
+export function useDeleteChapter() {
+  const qc = useQueryClient();
+  const { user } = useAuth();
+  return useMutation({
+    mutationFn: async (input: {
+      id: string;
+      groupId: string;
+      /** `cascade` deletes the resources with it; `unfile` keeps them. */
+      resources: "cascade" | "unfile";
+    }) => {
+      if (input.resources === "unfile") {
+        const existing = must(
+          await supabase
+            .from("chapters")
+            .select("id")
+            .eq("group_id", input.groupId)
+            .eq("title", UNFILED_CHAPTER_TITLE)
+            .limit(1),
+        );
+        let target = existing[0]?.id ?? null;
+        if (!target) {
+          const created = must(
+            await supabase
+              .from("chapters")
+              .insert({
+                group_id: input.groupId,
+                title: UNFILED_CHAPTER_TITLE,
+                // Last in the outline, and hidden: unfiled material has not been
+                // arranged yet, so it should not appear to students on its own.
+                position: 9999,
+                is_published: false,
+                created_by: user?.id ?? null,
+              })
+              .select("id"),
+          );
+          target = created[0]?.id ?? null;
+        }
+        if (!target) throw new Error("Impossible de créer le chapitre « Non classé ».");
+        // Move first. If this fails, nothing has been destroyed.
+        must(
+          await supabase
+            .from("resources")
+            .update({ chapter_id: target })
+            .eq("chapter_id", input.id)
+            .select("id"),
+        );
+      }
+      const { error } = await supabase.from("chapters").delete().eq("id", input.id);
       if (error) throw new Error(error.message);
     },
     onSuccess: () => void qc.invalidateQueries({ queryKey: resourceKeys.root }),
   });
 }
 
-/** Persists a reordered chapter list. One round trip per moved row. */
+/**
+ * Duplicates a chapter and its resources into the same group.
+ *
+ * Stored files are COPIED in the bucket rather than re-uploaded: the browser already
+ * sent those bytes once. `storage.copy` is authorised by the same
+ * `course resources staff write` policy as an upload, keyed on the destination
+ * folder, so a copy into a group the caller does not manage is refused by storage
+ * itself rather than by anything here.
+ *
+ * The copy starts HIDDEN, whatever the original was. A duplicate is a draft.
+ */
+export function useDuplicateChapter() {
+  const qc = useQueryClient();
+  const { user } = useAuth();
+  return useMutation({
+    mutationFn: async (input: { id: string }) => {
+      const { data: found, error: foundError } = await supabase
+        .from("chapters")
+        .select(`${CHAPTER_COLUMNS}, resources(${RESOURCE_COLUMNS})`)
+        .eq("id", input.id)
+        .maybeSingle();
+      if (foundError) throw new Error(foundError.message);
+      // RLS decides visibility, so "not found" and "not yours" arrive the same way.
+      if (!found) throw new Error("Chapitre introuvable.");
+      const source = found as unknown as RawChapter & { resources: RawResource[] };
+      const created = must(
+        await supabase
+          .from("chapters")
+          .insert({
+            group_id: source.group_id,
+            title: `${source.title} (copie)`,
+            description: source.description,
+            position: (source.position ?? 0) + 1,
+            pinned: false,
+            is_published: false,
+            created_by: user?.id ?? null,
+          })
+          .select("id"),
+      );
+      const newChapterId = created[0]?.id;
+      if (!newChapterId) throw new Error("Duplication impossible.");
+
+      for (const r of (source.resources ?? []) as RawResource[]) {
+        let storagePath = r.storage_path;
+        if (r.kind === "file" && r.storage_path) {
+          const to = `${source.group_id}/${globalThis.crypto.randomUUID()}/${
+            r.storage_path.split("/").slice(2).join("/") || "fichier"
+          }`;
+          const { error } = await supabase.storage.from(RESOURCE_BUCKET).copy(r.storage_path, to);
+          if (error) throw new Error(error.message);
+          storagePath = to;
+        }
+        must(
+          await supabase
+            .from("resources")
+            .insert({
+              chapter_id: newChapterId,
+              group_id: "00000000-0000-0000-0000-000000000000",
+              title: r.title,
+              description: r.description,
+              kind: r.kind as ResourceKind,
+              storage_path: storagePath,
+              url: r.url,
+              mime_type: r.mime_type,
+              size_bytes: r.size_bytes,
+              role: r.role as ResourceRole,
+              pinned: r.pinned,
+              allow_download: r.allow_download,
+              position: r.position,
+              is_published: false,
+              published_at: null,
+              created_by: user?.id ?? null,
+            })
+            .select("id"),
+        );
+      }
+      return newChapterId;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: resourceKeys.root }),
+  });
+}
+
 export function useReorderChapters() {
   const qc = useQueryClient();
   return useMutation({
@@ -482,6 +728,222 @@ export function useSetResourceVisibility() {
     },
     onSuccess: () => void qc.invalidateQueries({ queryKey: resourceKeys.root }),
   });
+}
+
+/** Pin or unpin one resource. Pinning surfaces it in the student's "Important"
+ *  rail; it deliberately does not move it inside its chapter. */
+export function useSetResourcePinned() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { id: string; pinned: boolean }) => {
+      must(
+        await supabase
+          .from("resources")
+          .update({ pinned: input.pinned })
+          .eq("id", input.id)
+          .select("id"),
+      );
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: resourceKeys.root }),
+  });
+}
+
+/* ------------------------------ BULK ACTIONS ------------------------------ */
+
+/**
+ * Publish or hide many resources at once.
+ *
+ * One statement with `.in()`, not a loop: RLS filters the ids the caller may touch,
+ * so a selection that reaches across into someone else's group updates only the
+ * permitted rows and reports how many. A loop would half-succeed and report nothing.
+ */
+export function useBulkSetVisibility() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { ids: string[]; isPublished: boolean }) => {
+      if (input.ids.length === 0) return 0;
+      const rows = must(
+        await supabase
+          .from("resources")
+          .update({
+            is_published: input.isPublished,
+            ...(input.isPublished ? { published_at: null } : {}),
+          })
+          .in("id", input.ids)
+          .select("id"),
+      );
+      return rows.length;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: resourceKeys.root }),
+  });
+}
+
+/**
+ * Deletes many resources, and their stored objects.
+ *
+ * Rows first, objects second, and only the objects whose rows actually went: RLS may
+ * have refused some, and removing a file whose row survived would leave a resource
+ * pointing at nothing. The reverse order would orphan bytes in the bucket, which is
+ * the cheaper mistake but still counts against the centre quota.
+ */
+export function useBulkDeleteResources() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (ids: string[]) => {
+      if (ids.length === 0) return 0;
+      const deleted = must(
+        await supabase.from("resources").delete().in("id", ids).select("id, storage_path"),
+      );
+      const paths = deleted
+        .map((r) => r.storage_path)
+        .filter((p): p is string => typeof p === "string" && p.length > 0);
+      if (paths.length > 0) {
+        // Best effort: the rows are already gone, and a failure here is a quota
+        // problem rather than a correctness one.
+        await supabase.storage.from(RESOURCE_BUCKET).remove(paths);
+      }
+      return deleted.length;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: resourceKeys.root }),
+  });
+}
+
+/**
+ * Moves many resources into one destination chapter.
+ *
+ * The destination is validated against the DATABASE, not against what the client
+ * believes: the chapter is re-read to confirm it exists, is visible to the caller
+ * and belongs to the group they named. Only then is `chapter_id` written -- and the
+ * `resources_sync_group` trigger re-derives `group_id` from that chapter, so a
+ * Group A + Chapter-of-B pairing cannot be persisted even if this check were wrong.
+ */
+export function useBulkMoveResources() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { ids: string[]; destination: ResourceDestination }) => {
+      if (input.ids.length === 0) return 0;
+      const { data: chapter, error: chapterError } = await supabase
+        .from("chapters")
+        .select("id, group_id")
+        .eq("id", input.destination.chapterId)
+        .maybeSingle();
+      if (chapterError) throw new Error(chapterError.message);
+      if (!chapter) throw new Error("Chapitre de destination introuvable.");
+      if (chapter.group_id !== input.destination.groupId) {
+        throw new Error("Ce chapitre n'appartient pas au groupe choisi.");
+      }
+      const rows = must(
+        await supabase
+          .from("resources")
+          .update({ chapter_id: chapter.id })
+          .in("id", input.ids)
+          .select("id"),
+      );
+      return rows.length;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: resourceKeys.root }),
+  });
+}
+
+/**
+ * Duplicates one resource into a chosen chapter.
+ *
+ * A stored file is COPIED inside the bucket, not re-uploaded: the bytes are already
+ * there, and `storage.copy` is authorised by the destination folder through the same
+ * policy an upload uses. Nothing about the storage layout reaches the caller -- the
+ * new path is generated here.
+ *
+ * The copy starts HIDDEN and carries no history: `resource_events` are not copied, so
+ * view and download counts start at zero. Inheriting another resource's analytics
+ * would make the numbers lies.
+ */
+export function useDuplicateResource() {
+  const qc = useQueryClient();
+  const { user } = useAuth();
+  return useMutation({
+    mutationFn: async (input: { id: string; destination: ResourceDestination }) => {
+      const { data: found, error: foundError } = await supabase
+        .from("resources")
+        .select(RESOURCE_COLUMNS)
+        .eq("id", input.id)
+        .maybeSingle();
+      if (foundError) throw new Error(foundError.message);
+      if (!found) throw new Error("Ressource introuvable.");
+      const source = found as unknown as RawResource;
+
+      const { data: chapter, error: chapterError } = await supabase
+        .from("chapters")
+        .select("id, group_id")
+        .eq("id", input.destination.chapterId)
+        .maybeSingle();
+      if (chapterError) throw new Error(chapterError.message);
+      if (!chapter) throw new Error("Chapitre de destination introuvable.");
+      if (chapter.group_id !== input.destination.groupId) {
+        throw new Error("Ce chapitre n'appartient pas au groupe choisi.");
+      }
+
+      let storagePath = source.storage_path;
+      if (source.kind === "file" && source.storage_path) {
+        const name = source.storage_path.split("/").slice(2).join("/") || "fichier";
+        const to = `${chapter.group_id}/${globalThis.crypto.randomUUID()}/${name}`;
+        const { error } = await supabase.storage
+          .from(RESOURCE_BUCKET)
+          .copy(source.storage_path, to);
+        if (error) throw new Error(error.message);
+        storagePath = to;
+      }
+
+      const rows = must(
+        await supabase
+          .from("resources")
+          .insert({
+            chapter_id: chapter.id,
+            group_id: "00000000-0000-0000-0000-000000000000",
+            title: `${source.title} (copie)`,
+            description: source.description,
+            kind: source.kind as ResourceKind,
+            storage_path: storagePath,
+            url: source.url,
+            mime_type: source.mime_type,
+            size_bytes: source.size_bytes,
+            role: source.role as ResourceRole,
+            pinned: false,
+            allow_download: source.allow_download,
+            is_published: false,
+            published_at: null,
+            created_by: user?.id ?? null,
+          })
+          .select("id"),
+      );
+      return rows[0]?.id ?? null;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: resourceKeys.root }),
+  });
+}
+
+/**
+ * Whether a file of this name already sits in this chapter.
+ *
+ * `file_name` is kept true by `resources_sync_file_meta`, so this is a column read
+ * rather than a path parse. Used to offer Remplacer / Conserver les deux instead of
+ * silently creating a second "TD3.pdf" that nobody can tell apart.
+ */
+export async function findDuplicateFileName(
+  chapterId: string,
+  fileName: string,
+): Promise<{ id: string; title: string; storagePath: string | null } | null> {
+  const rows = must(
+    await supabase
+      .from("resources")
+      .select("id, title, storage_path")
+      .eq("chapter_id", chapterId)
+      .eq("file_name", fileName)
+      .limit(1),
+  );
+  const row = rows[0];
+  // The path comes back too: replacing means deleting the old object as well, and a
+  // caller without it would leave bytes behind counting against the centre quota.
+  return row ? { id: row.id, title: row.title, storagePath: row.storage_path } : null;
 }
 
 export function useReorderResources() {
