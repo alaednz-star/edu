@@ -5,7 +5,8 @@ import { toast } from "sonner";
 import { PageHeader } from "@/components/common/page-header";
 import { SectionCard } from "@/components/common/section-card";
 import { ErrorState } from "@/components/common/error-state";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { AvatarPicker } from "@/features/profile/avatar-picker";
+import { avatarPathFromUrl, removeAvatar, uploadAvatar } from "@/features/profile/avatar-upload";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -42,6 +43,7 @@ function ProfilePage() {
 
   const [form, setForm] = useState({ fullName: "", phone: "", avatarUrl: "" });
   const [sendingReset, setSendingReset] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     if (!data) return;
@@ -52,20 +54,77 @@ function ProfilePage() {
     });
   }, [data]);
 
+  /**
+   * Uploads the chosen photo and points the profile at it.
+   *
+   * ORDER: upload, then update the profile, then remove the old object. Deleting first
+   * would leave a failed upload with no photo at all -- worse than the one it had. A
+   * failure at the last step leaves one orphaned 40 kB file, which is the cheap end of
+   * that trade.
+   *
+   * Saved immediately rather than on the form's Save button: choosing a file already
+   * expressed the intent, and a preview that is not yet stored is a preview that lies.
+   */
+  const pickAvatar = async (file: File) => {
+    if (!user?.id || uploading) return;
+    const previous = avatarPathFromUrl(form.avatarUrl);
+    setUploading(true);
+    try {
+      const { url } = await uploadAvatar(user.id, file);
+      await update.mutateAsync({
+        fullName: form.fullName.trim() || (data?.fullName ?? ""),
+        phone: form.phone.trim() || null,
+        avatarUrl: url,
+      });
+      setForm((prev) => ({ ...prev, avatarUrl: url }));
+      notifySuccess("profile.avatarSaved");
+      void refresh();
+      // Only now, and only if it was ours. An externally hosted URL from the old
+      // paste-a-link field yields null and is left alone.
+      await removeAvatar(previous);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      if (message === "avatar-too-large") toast.error(t("profile.avatarTooLarge"));
+      else if (message === "avatar-bad-type") toast.error(t("profile.avatarBadType"));
+      else notifyError(e);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  /** Detaches the photo, then removes the object it pointed at. */
+  const clearAvatar = async () => {
+    if (!user?.id || uploading) return;
+    const previous = avatarPathFromUrl(form.avatarUrl);
+    setUploading(true);
+    try {
+      await update.mutateAsync({
+        fullName: form.fullName.trim() || (data?.fullName ?? ""),
+        phone: form.phone.trim() || null,
+        avatarUrl: null,
+      });
+      setForm((prev) => ({ ...prev, avatarUrl: "" }));
+      notifySuccess("profile.avatarRemoved");
+      void refresh();
+      await removeAvatar(previous);
+    } catch (e) {
+      notifyError(e);
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const submit = () => {
     if (update.isPending) return;
     if (!form.fullName.trim()) {
       toast.error(t("profile.nameRequired"));
       return;
     }
-    if (form.avatarUrl.trim() && !/^https?:\/\//i.test(form.avatarUrl.trim())) {
-      toast.error(t("profile.avatarInvalid"));
-      return;
-    }
     update.mutate(
       {
         fullName: form.fullName.trim(),
         phone: form.phone.trim() || null,
+        // The photo is saved when it is chosen; this keeps whatever is stored.
         avatarUrl: form.avatarUrl.trim() || null,
       },
       {
@@ -131,12 +190,14 @@ function ProfilePage() {
 
       <SectionCard title={t("profile.identityTitle")} description={t("profile.identityDesc")}>
         <div className="flex flex-col gap-6 sm:flex-row sm:items-start">
-          <Avatar className="size-20 shrink-0">
-            {form.avatarUrl ? <AvatarImage src={form.avatarUrl} alt="" /> : null}
-            <AvatarFallback className="bg-primary-soft text-lg font-semibold text-primary">
-              {initialsOf(form.fullName || user?.fullName || "?")}
-            </AvatarFallback>
-          </Avatar>
+          <AvatarPicker
+            url={form.avatarUrl || null}
+            fallback={initialsOf(form.fullName || user?.fullName || "?")}
+            busy={uploading}
+            onPick={(file) => void pickAvatar(file)}
+            onClear={() => void clearAvatar()}
+            className="shrink-0"
+          />
 
           <div className="grid flex-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
@@ -157,17 +218,6 @@ function ProfilePage() {
                 value={form.phone}
                 onChange={(e) => setForm((p) => ({ ...p, phone: e.target.value }))}
               />
-            </div>
-            <div className="space-y-2 sm:col-span-2">
-              <Label htmlFor="p-avatar">{t("profile.avatarUrl")}</Label>
-              <Input
-                id="p-avatar"
-                className="h-11 rounded-xl"
-                placeholder="https://…"
-                value={form.avatarUrl}
-                onChange={(e) => setForm((p) => ({ ...p, avatarUrl: e.target.value }))}
-              />
-              <p className="text-xs text-muted-foreground">{t("profile.avatarHint")}</p>
             </div>
           </div>
         </div>

@@ -10,6 +10,14 @@ import type { DictionaryModule } from "../types";
  */
 export const workspace: DictionaryModule = {
   fr: {
+    "profile.avatarChange": "Ajouter une photo",
+    "profile.avatarReplace": "Changer la photo",
+    "profile.avatarRemove": "Retirer la photo",
+    "profile.avatarLimits": "JPG, PNG ou WEBP · 2 Mo maximum",
+    "profile.avatarBadType": "Format non accepté. Utilisez JPG, PNG ou WEBP.",
+    "profile.avatarTooLarge": "Image trop lourde (2 Mo maximum).",
+    "profile.avatarSaved": "Photo mise à jour",
+    "profile.avatarRemoved": "Photo retirée",
     // --- menu ---
     "menu.myProfile": "Mon profil",
     "menu.today": "Aujourd'hui",
@@ -213,6 +221,14 @@ export const workspace: DictionaryModule = {
   },
 
   ar: {
+    "profile.avatarChange": "إضافة صورة",
+    "profile.avatarReplace": "تغيير الصورة",
+    "profile.avatarRemove": "إزالة الصورة",
+    "profile.avatarLimits": "JPG أو PNG أو WEBP · 2 ميغابايت كحد أقصى",
+    "profile.avatarBadType": "صيغة غير مقبولة. استخدم JPG أو PNG أو WEBP.",
+    "profile.avatarTooLarge": "الصورة كبيرة جدًا (2 ميغابايت كحد أقصى).",
+    "profile.avatarSaved": "تم تحديث الصورة",
+    "profile.avatarRemoved": "تم إزالة الصورة",
     "menu.myProfile": "ملفي الشخصي",
     "menu.today": "اليوم",
     "menu.myGroups": "أفواجي",
@@ -407,6 +423,14 @@ export const workspace: DictionaryModule = {
   },
 
   en: {
+    "profile.avatarChange": "Add a photo",
+    "profile.avatarReplace": "Change photo",
+    "profile.avatarRemove": "Remove photo",
+    "profile.avatarLimits": "JPG, PNG or WEBP · 2 MB maximum",
+    "profile.avatarBadType": "Unsupported format. Use JPG, PNG or WEBP.",
+    "profile.avatarTooLarge": "Image too large (2 MB maximum).",
+    "profile.avatarSaved": "Photo updated",
+    "profile.avatarRemoved": "Photo removed",
     "menu.myProfile": "My profile",
     "menu.today": "Today",
     "menu.myGroups": "My groups",
