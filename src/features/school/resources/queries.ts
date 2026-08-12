@@ -10,6 +10,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { currentAccessToken } from "@/integrations/supabase/access-token";
+import { supabaseRestConfig } from "@/integrations/supabase/client";
 import { assertUploadAllowedFn, signResourceUrlFn } from "./storage.functions";
 import type {
   ChapterOption,
@@ -57,6 +58,8 @@ export const resourceKeys = {
   /** Engagement figures for one resource. Under the root too, so recording a view
    *  refreshes the panel without a second invalidation rule. */
   engagement: (resourceId: string) => ["resources", "engagement", resourceId] as const,
+  /** Centre storage usage. Under the root, so an upload refreshes it. */
+  quota: ["resources", "quota"] as const,
 };
 
 /* ------------------------------ DERIVATION ------------------------------ */
@@ -751,6 +754,45 @@ export function useSetResourcePinned() {
   });
 }
 
+/* -------------------------------- QUOTA -------------------------------- */
+
+/**
+ * The centre's storage usage against its limit.
+ *
+ * Read from the database, not summed in the browser: `center_storage_bytes()`
+ * measures `storage.objects`, which is what actually consumes the quota, while a
+ * client-side sum of `resources.size_bytes` counts only the rows currently loaded and
+ * misses an object whose row was deleted. The header used to show that sum, which
+ * meant the number shrank when a filter was applied.
+ *
+ * Both functions are already granted to `authenticated` and are the same ones the
+ * upload path enforces with, so the figure shown is the figure that will refuse the
+ * next upload.
+ */
+export function useStorageQuota() {
+  return useQuery({
+    queryKey: resourceKeys.quota,
+    // Changes only when something is uploaded or deleted, both of which invalidate
+    // the root; a minute of staleness is fine for a capacity readout.
+    staleTime: 60_000,
+    queryFn: async (): Promise<{ usedBytes: number; quotaBytes: number; fraction: number }> => {
+      const [used, quota] = await Promise.all([
+        supabase.rpc("center_storage_bytes"),
+        supabase.rpc("center_storage_quota_bytes"),
+      ]);
+      if (used.error) throw new Error(used.error.message);
+      if (quota.error) throw new Error(quota.error.message);
+      const usedBytes = Number(used.data ?? 0);
+      const quotaBytes = Number(quota.data ?? 0);
+      return {
+        usedBytes,
+        quotaBytes,
+        fraction: quotaBytes > 0 ? Math.min(1, usedBytes / quotaBytes) : 0,
+      };
+    },
+  });
+}
+
 /* ------------------------------ ENGAGEMENT ------------------------------ */
 
 export interface ResourceEngagement {
@@ -1080,13 +1122,47 @@ export function useReorderResources() {
  * cannot edit, and asking before the bytes go over the wire is also the only way
  * to fail fast on a 200 MB file.
  */
+/** Raised when the caller aborts. Distinguished so a cancel is not reported as a
+ *  failure -- the teacher already knows what happened. */
+export class UploadCancelledError extends Error {
+  constructor() {
+    super("Upload cancelled.");
+    this.name = "UploadCancelledError";
+  }
+}
+
+/**
+ * Uploads a file and returns its storage path.
+ *
+ * The path is `<group_id>/<uuid>/<filename>`, which is what the bucket policies
+ * authorise on -- they read the leading folder rather than joining back to
+ * `resources`, since the row does not exist yet at upload time.
+ *
+ * The per-file limit and the centre quota are decided on the server first. The
+ * bucket enforces its own size limit and cannot be bypassed, but it knows nothing
+ * about a 5 GB centre total -- so that half has to be asked somewhere the browser
+ * cannot edit, and asking before the bytes go over the wire is also the only way
+ * to fail fast on a 200 MB file.
+ *
+ * USES XHR, NOT `storage.upload()`. The SDK wraps `fetch`, which reports nothing
+ * until the request completes, so the old progress bar jumped to 5% and sat there
+ * for the length of the upload before snapping to 100%. `XMLHttpRequest` is still
+ * the only way a browser will tell you how many bytes have actually left, and it is
+ * also what makes a real cancel possible: `abort()` stops the transfer instead of
+ * merely abandoning a promise whose bytes keep flowing.
+ *
+ * The request carries the caller's JWT, so storage RLS applies exactly as before --
+ * `course resources staff write` still decides, keyed on the leading folder.
+ */
 export async function uploadResourceFile(
   groupId: string,
   file: File,
   onProgress?: (fraction: number) => void,
+  signal?: AbortSignal,
 ): Promise<{ path: string; mimeType: string; size: number }> {
   const accessToken = await currentAccessToken();
   if (!accessToken) throw new Error("Session expirée.");
+  if (signal?.aborted) throw new UploadCancelledError();
   await assertUploadAllowedFn({ data: { accessToken, groupId, sizeBytes: file.size } });
 
   const id = globalThis.crypto.randomUUID();
@@ -1094,17 +1170,60 @@ export async function uploadResourceFile(
   // anything that would break a path or a Content-Disposition header.
   const safeName = file.name.replace(/[^\w.\-À-ɏ ]+/g, "_").slice(-120);
   const path = `${groupId}/${id}/${safeName}`;
+  const contentType = file.type || "application/octet-stream";
+  const { url, key } = supabaseRestConfig();
 
-  onProgress?.(0.05);
-  const { error } = await supabase.storage.from(RESOURCE_BUCKET).upload(path, file, {
-    cacheControl: "3600",
-    upsert: false,
-    contentType: file.type || "application/octet-stream",
+  await new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${url}/storage/v1/object/${RESOURCE_BUCKET}/${encodeURI(path)}`, true);
+    xhr.setRequestHeader("apikey", key);
+    xhr.setRequestHeader("authorization", `Bearer ${accessToken}`);
+    xhr.setRequestHeader("content-type", contentType);
+    xhr.setRequestHeader("cache-control", "3600");
+    // Never overwrite: the path carries a fresh uuid, so a collision would mean
+    // something is wrong rather than something needs replacing.
+    xhr.setRequestHeader("x-upsert", "false");
+
+    const onAbort = () => xhr.abort();
+    signal?.addEventListener("abort", onAbort);
+    const done = () => signal?.removeEventListener("abort", onAbort);
+
+    xhr.upload.onprogress = (e) => {
+      // `lengthComputable` is false for a stream; fall back to the file size, which
+      // we know, rather than reporting nothing.
+      const total = e.lengthComputable ? e.total : file.size;
+      if (total > 0) onProgress?.(Math.min(1, e.loaded / total));
+    };
+    xhr.onload = () => {
+      done();
+      if (xhr.status >= 200 && xhr.status < 300) {
+        onProgress?.(1);
+        resolve();
+        return;
+      }
+      // Storage answers with a JSON body; surface its message rather than a status.
+      let message = `HTTP ${xhr.status}`;
+      try {
+        const body = JSON.parse(xhr.responseText) as { message?: string; error?: string };
+        message = body.message ?? body.error ?? message;
+      } catch {
+        /* not JSON: the status is all there is */
+      }
+      reject(new Error(message));
+    };
+    xhr.onerror = () => {
+      done();
+      // No status and no body: the request never reached the server.
+      reject(new Error("Le transfert a échoué. Vérifiez votre connexion."));
+    };
+    xhr.onabort = () => {
+      done();
+      reject(new UploadCancelledError());
+    };
+    xhr.send(file);
   });
-  if (error) throw new Error(error.message);
-  onProgress?.(1);
 
-  return { path, mimeType: file.type || "application/octet-stream", size: file.size };
+  return { path, mimeType: contentType, size: file.size };
 }
 
 /**

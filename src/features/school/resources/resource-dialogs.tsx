@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { FolderTree, Loader2, Paperclip, Plus, Upload } from "lucide-react";
+import { FolderTree, Loader2, Paperclip, Plus, RotateCcw, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -347,6 +347,8 @@ export function ResourceDialog({
   onSubmit,
   isPending,
   uploadProgress,
+  onCancelUpload,
+  onRetryUpload,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -362,6 +364,10 @@ export function ResourceDialog({
   isPending: boolean;
   /** 0..1 while a file is uploading, null otherwise. */
   uploadProgress: number | null;
+  /** Aborts the transfer in flight. */
+  onCancelUpload?: (() => void) | undefined;
+  /** Present only when the last attempt failed mid-upload. */
+  onRetryUpload?: (() => void) | undefined;
 }) {
   const { t, locale } = useI18n();
   const [groupId, setGroupId] = useState("");
@@ -473,7 +479,16 @@ export function ResourceDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        // Closing while bytes are in flight has to STOP them. Abandoning the promise
+        // leaves the XHR running, and the object lands in the bucket minutes later
+        // with no row pointing at it -- an orphan that still counts against the quota.
+        if (!v && uploadProgress !== null) onCancelUpload?.();
+        onOpenChange(v);
+      }}
+    >
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
@@ -718,9 +733,55 @@ export function ResourceDialog({
                 }}
               />
               {uploadProgress !== null && (
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                   <Progress value={Math.round(uploadProgress * 100)} className="h-1.5" />
-                  <p className="text-xs text-muted-foreground">{t("resources.dialog.uploading")}</p>
+                  <div className="flex items-center justify-between gap-2">
+                    {/* Bytes as well as percent: on a slow line "12 %" alone does not
+                        tell a teacher whether anything is actually moving. */}
+                    <p
+                      className="text-xs text-muted-foreground"
+                      dir="ltr"
+                      style={{ unicodeBidi: "isolate" }}
+                    >
+                      {Math.round(uploadProgress * 100)}%
+                      {file
+                        ? ` · ${formatBytes(file.size * uploadProgress, locale)} / ${formatBytes(file.size, locale)}`
+                        : ""}
+                    </p>
+                    {onCancelUpload && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 rounded-lg px-2 text-xs"
+                        // NOT "Annuler": the footer already has one, and two buttons
+                        // reading the same word in one dialog is a coin toss for the
+                        // person clicking. "Interrompre" says which one stops bytes.
+                        aria-label={t("resources.upload.stop")}
+                        onClick={onCancelUpload}
+                      >
+                        <X className="size-3.5" aria-hidden />
+                        {t("resources.upload.stop")}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )}
+              {/* A failed transfer keeps the chosen file, so retrying is one click
+                  rather than re-picking it. */}
+              {uploadProgress === null && onRetryUpload && (
+                <div className="flex items-center justify-between gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2">
+                  <p className="text-xs text-destructive">{t("resources.upload.failed")}</p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 rounded-lg px-2 text-xs"
+                    onClick={onRetryUpload}
+                  >
+                    <RotateCcw className="size-3.5" aria-hidden />
+                    {t("resources.upload.retry")}
+                  </Button>
                 </div>
               )}
             </div>

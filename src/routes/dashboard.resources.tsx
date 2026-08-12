@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { FolderOpen, Plus, Search } from "lucide-react";
@@ -7,6 +7,7 @@ import { EmptyState } from "@/components/common/empty-state";
 import { ErrorState } from "@/components/common/error-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
@@ -42,6 +43,7 @@ import {
 import { ResourcePreview } from "@/features/school/resources/resource-preview";
 import {
   findDuplicateFileName,
+  UploadCancelledError,
   signResourceUrl,
   statsFor,
   uploadResourceFile,
@@ -62,6 +64,7 @@ import {
   useSetChapterVisibility,
   useSetResourcePinned,
   useSetResourceVisibility,
+  useStorageQuota,
   resourceKeys,
 } from "@/features/school/resources/queries";
 import { formatBytes } from "@/features/school/resources/resource-icon";
@@ -139,9 +142,20 @@ function ResourcesPage() {
   /** Which resource's engagement figures are open. Null closes the panel. */
   const [engagement, setEngagement] = useState<ResourceRow | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  /**
+   * The in-flight upload's abort handle, and the submission that produced it.
+   *
+   * Kept in a ref rather than state because `cancelUpload` must reach the CURRENT
+   * controller, and a handler closing over state would abort a stale one -- the same
+   * shape of bug the drag-and-drop `targetRef` documents.
+   */
+  const uploadAbort = useRef<AbortController | null>(null);
+  /** The last submission that failed mid-upload, so it can be retried unchanged. */
+  const [failedUpload, setFailedUpload] = useState<ResourceFormValue | null>(null);
 
   const coursesQuery = useCourseResources(courseFilter === ALL ? null : courseFilter);
   const groupsQuery = useGroups();
+  const quota = useStorageQuota();
 
   const saveChapter = useSaveChapter();
   const deleteChapter = useDeleteChapter();
@@ -314,12 +328,23 @@ ${t("resources.upload.keepBoth")} = ${t("resources.dialog.cancel")}`,
         // currently filtered to -- is not in that list, and the old lookup failed
         // the upload outright.
         if (!v.groupId) throw new Error(t("resources.hier.selectGroup"));
+        const controller = new AbortController();
+        uploadAbort.current = controller;
         setUploadProgress(0);
-        const up = await uploadResourceFile(v.groupId, v.file, setUploadProgress);
-        storagePath = up.path;
-        mimeType = up.mimeType;
-        sizeBytes = up.size;
-        setUploadProgress(null);
+        try {
+          const up = await uploadResourceFile(
+            v.groupId,
+            v.file,
+            setUploadProgress,
+            controller.signal,
+          );
+          storagePath = up.path;
+          mimeType = up.mimeType;
+          sizeBytes = up.size;
+        } finally {
+          uploadAbort.current = null;
+          setUploadProgress(null);
+        }
       }
 
       await saveResource.mutateAsync({
@@ -347,8 +372,28 @@ ${t("resources.upload.keepBoth")} = ${t("resources.dialog.cancel")}`,
       setResourceDialog({ open: false });
     } catch (e) {
       setUploadProgress(null);
+      uploadAbort.current = null;
+      // A cancel is not a failure: the teacher just did it on purpose, and an error
+      // toast for their own click is noise. Offer the retry instead.
+      if (e instanceof UploadCancelledError) {
+        notifySuccess("resources.upload.cancelled");
+        return;
+      }
+      setFailedUpload(v);
       notifyError(e);
     }
+  };
+
+  /** Aborts the transfer in flight. The bytes stop; nothing is left half-written,
+   *  because the row is only created after the upload resolves. */
+  const cancelUpload = () => uploadAbort.current?.abort();
+
+  /** Retries the exact submission that failed, file and all. */
+  const retryUpload = () => {
+    const again = failedUpload;
+    if (!again) return;
+    setFailedUpload(null);
+    void submitResource(again);
   };
 
   /**
@@ -768,15 +813,25 @@ ${t("resources.upload.keepBoth")} = ${t("resources.dialog.cancel")}`,
           <Stat value={stats.resources} label={t("resources.stat.resources")} />
           <Stat value={stats.published} label={t("resources.stat.published")} tone="success" />
           <Stat value={stats.hidden} label={t("resources.stat.hidden")} tone="muted" />
-          <div className="border-s border-border ps-5">
-            {/* Bidi-isolated: "35 MB" is direction-neutral and RTL reordered it
-                to "MB 35", the same fault as the calendar's time ranges. */}
+          <div className="min-w-40 border-s border-border ps-5">
+            {/* The MEASURED centre total against the real limit, not a sum of the rows
+                on screen -- that old number shrank whenever a filter was applied.
+                Bidi-isolated: "35 MB / 5 GB" is direction-neutral and RTL reordered
+                it, the same fault as the calendar's time ranges. */}
             <dd className="text-lg font-semibold tabular-nums">
               <span dir="ltr" style={{ unicodeBidi: "isolate" }}>
-                {formatBytes(stats.storageBytes, locale) ?? "0 B"}
+                {quota.data
+                  ? `${formatBytes(quota.data.usedBytes, locale) ?? "0 B"} / ${formatBytes(quota.data.quotaBytes, locale)}`
+                  : (formatBytes(stats.storageBytes, locale) ?? "0 B")}
               </span>
             </dd>
             <dt className="text-[11px] text-muted-foreground">{t("resources.stat.storage")}</dt>
+            {quota.data && (
+              <Progress
+                value={Math.round(quota.data.fraction * 100)}
+                className={cn("mt-1.5 h-1", quota.data.fraction > 0.9 && "[&>div]:bg-destructive")}
+              />
+            )}
           </div>
         </dl>
       )}
@@ -997,6 +1052,8 @@ ${t("resources.upload.keepBoth")} = ${t("resources.dialog.cancel")}`,
         onSubmit={submitResource}
         isPending={saveResource.isPending || uploadProgress !== null}
         uploadProgress={uploadProgress}
+        onCancelUpload={cancelUpload}
+        {...(failedUpload ? { onRetryUpload: retryUpload } : {})}
       />
 
       <ChapterDeleteDialog

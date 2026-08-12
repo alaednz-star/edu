@@ -57,6 +57,24 @@ function createSupabaseClient() {
   });
 }
 
+/**
+ * The same two values the client is built from, for the one job the SDK cannot do:
+ * uploading with real progress.
+ *
+ * `storage.upload()` wraps `fetch`, which reports nothing until the request finishes,
+ * so a 200 MB video shows a bar that sits still and then jumps. Real progress needs
+ * `XMLHttpRequest.upload.onprogress`, which needs the endpoint and the key. Both are
+ * already public -- the publishable key ships in the bundle by design -- so exporting
+ * them adds no exposure.
+ */
+export function supabaseRestConfig(): { url: string; key: string } {
+  const url = import.meta.env["VITE_SUPABASE_URL"] || process.env["SUPABASE_URL"];
+  const key =
+    import.meta.env["VITE_SUPABASE_PUBLISHABLE_KEY"] || process.env["SUPABASE_PUBLISHABLE_KEY"];
+  if (!url || !key) throw new Error("Supabase is not configured.");
+  return { url, key };
+}
+
 let _supabase: ReturnType<typeof createSupabaseClient> | undefined;
 
 // Import the supabase client like this:

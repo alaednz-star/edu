@@ -3,6 +3,11 @@ import type { DictionaryModule } from "../types";
 /** Course resources: chapters, files, links, student progress. */
 export const resources: DictionaryModule = {
   fr: {
+    "resources.upload.stop": "Interrompre",
+    "resources.upload.cancel": "Annuler",
+    "resources.upload.cancelled": "Transfert annulé",
+    "resources.upload.failed": "Le transfert a échoué.",
+    "resources.upload.retry": "Réessayer",
     "resources.engagement.title": "Consultations",
     "resources.engagement.views": "vues",
     "resources.engagement.students": "élèves",
@@ -231,6 +236,11 @@ export const resources: DictionaryModule = {
   },
 
   ar: {
+    "resources.upload.stop": "إيقاف",
+    "resources.upload.cancel": "إلغاء",
+    "resources.upload.cancelled": "تم إلغاء النقل",
+    "resources.upload.failed": "فشل النقل.",
+    "resources.upload.retry": "إعادة المحاولة",
     "resources.engagement.title": "المشاهدات",
     "resources.engagement.views": "مشاهدة",
     "resources.engagement.students": "تلميذ",
@@ -442,6 +452,11 @@ export const resources: DictionaryModule = {
   },
 
   en: {
+    "resources.upload.stop": "Stop",
+    "resources.upload.cancel": "Cancel",
+    "resources.upload.cancelled": "Upload cancelled",
+    "resources.upload.failed": "The upload failed.",
+    "resources.upload.retry": "Try again",
     "resources.engagement.title": "Views",
     "resources.engagement.views": "views",
     "resources.engagement.students": "students",

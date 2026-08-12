@@ -17,6 +17,11 @@ const Progress = React.forwardRef<
   // start edge already follows `dir`.
   <ProgressPrimitive.Root
     ref={ref}
+    // `value` is forwarded as well as used below. Destructuring it out and only
+    // applying it to the indicator's width left the root with role="progressbar" and
+    // NO aria-valuenow, so the bar was invisible to a screen reader and unreadable to
+    // a test -- a silent gap, since the fill still looked right.
+    value={value}
     className={cn("relative h-2 w-full overflow-hidden rounded-full bg-primary/20", className)}
     {...props}
   >
