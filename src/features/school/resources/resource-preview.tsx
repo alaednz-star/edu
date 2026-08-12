@@ -13,6 +13,7 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useI18n } from "@/hooks/use-i18n";
 import { formatBytes, faceOf } from "./resource-icon";
 import { signResourceUrl } from "./queries";
+import { linkFaceOf } from "./link-provider";
 import type { ResourceRow } from "./types";
 
 export function ResourcePreview({
@@ -63,6 +64,7 @@ export function ResourcePreview({
   const face = resource ? faceOf(resource.kind, resource.mimeType) : null;
   const size = resource ? formatBytes(resource.sizeBytes, locale) : null;
   const allowDownload = canDownload && (resource?.allowDownload ?? false);
+  const linkFace = linkFaceOf(resource?.url);
 
   return (
     <Sheet open={resource !== null} onOpenChange={(v) => !v && onClose()}>
@@ -116,8 +118,39 @@ export function ResourcePreview({
                     <track kind="captions" />
                   </audio>
                 </div>
+              ) : resource.kind === "link" ? (
+                // A link is not one thing. A YouTube WATCH url cannot be framed at all
+                // -- YouTube answers with X-Frame-Options and the student saw a
+                // refused-to-connect box -- so the embeddable form is used where one
+                // exists, and where none does the honest answer is a button.
+                linkFace.embedUrl ? (
+                  <iframe
+                    src={linkFace.embedUrl}
+                    title={resource.title}
+                    // `allowFullScreen` is what makes an embedded lesson watchable on a
+                    // phone; the rest is the minimum a video embed needs.
+                    allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                    className="h-full min-h-[70vh] w-full border-0"
+                  />
+                ) : (
+                  <div className="flex flex-col items-center gap-3 p-10 text-center">
+                    <p className="text-sm font-medium">{t("resources.link.notEmbeddable")}</p>
+                    <p className="text-xs text-muted-foreground">{t(linkFace.labelKey)}</p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="rounded-xl"
+                      onClick={() => globalThis.open(url, "_blank", "noopener,noreferrer")}
+                    >
+                      <ExternalLink className="size-4" aria-hidden />
+                      {t("resources.preview.openExternal")}
+                    </Button>
+                  </div>
+                )
               ) : (
-                // PDFs and external links: an iframe keeps the student on the page.
+                // PDFs: an iframe keeps the student on the page.
                 <iframe
                   src={url}
                   title={resource.title}

@@ -3,6 +3,13 @@ import type { DictionaryModule } from "../types";
 /** Course resources: chapters, files, links, student progress. */
 export const resources: DictionaryModule = {
   fr: {
+    "resources.link.youtube": "YouTube",
+    "resources.link.vimeo": "Vimeo",
+    "resources.link.drive": "Google Drive",
+    "resources.link.dropbox": "Dropbox",
+    "resources.link.onedrive": "OneDrive",
+    "resources.link.other": "Lien externe",
+    "resources.link.notEmbeddable": "Ce service ne permet pas la lecture intégrée.",
     "resources.upload.stop": "Interrompre",
     "resources.upload.cancel": "Annuler",
     "resources.upload.cancelled": "Transfert annulé",
@@ -236,6 +243,13 @@ export const resources: DictionaryModule = {
   },
 
   ar: {
+    "resources.link.youtube": "يوتيوب",
+    "resources.link.vimeo": "فيميو",
+    "resources.link.drive": "Google Drive",
+    "resources.link.dropbox": "Dropbox",
+    "resources.link.onedrive": "OneDrive",
+    "resources.link.other": "رابط خارجي",
+    "resources.link.notEmbeddable": "هذه الخدمة لا تسمح بالتشغيل المدمج.",
     "resources.upload.stop": "إيقاف",
     "resources.upload.cancel": "إلغاء",
     "resources.upload.cancelled": "تم إلغاء النقل",
@@ -452,6 +466,13 @@ export const resources: DictionaryModule = {
   },
 
   en: {
+    "resources.link.youtube": "YouTube",
+    "resources.link.vimeo": "Vimeo",
+    "resources.link.drive": "Google Drive",
+    "resources.link.dropbox": "Dropbox",
+    "resources.link.onedrive": "OneDrive",
+    "resources.link.other": "External link",
+    "resources.link.notEmbeddable": "This service does not allow embedded playback.",
     "resources.upload.stop": "Stop",
     "resources.upload.cancel": "Cancel",
     "resources.upload.cancelled": "Upload cancelled",

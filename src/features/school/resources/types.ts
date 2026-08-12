@@ -60,6 +60,8 @@ export interface ResourceRow {
   position: number;
   /** Pedagogical purpose. Drives the badge and the default within-chapter order. */
   role: ResourceRole;
+  /** Derived from `url` on save. Null for files. Decides how a link is previewed. */
+  linkProvider: string | null;
   pinned: boolean;
   allowDownload: boolean;
   isPublished: boolean;

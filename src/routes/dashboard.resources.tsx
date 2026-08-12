@@ -28,6 +28,7 @@ import { CourseIdentity } from "@/features/school/resources/course-identity";
 import { ChapterDeleteDialog } from "@/features/school/resources/chapter-delete-dialog";
 import { DestinationDialog } from "@/features/school/resources/destination-dialog";
 import { EngagementPanel } from "@/features/school/resources/engagement-panel";
+import { linkFaceOf } from "@/features/school/resources/link-provider";
 import { ResourceListView } from "@/features/school/resources/resource-list-view";
 import {
   insertRelative,
@@ -538,7 +539,10 @@ ${t("resources.upload.keepBoth")} = ${t("resources.dialog.cancel")}`,
 
   /** Signed URL per click: the bucket is private, so a copied link expires. */
   const openResource = async (r: ResourceRow) => {
-    if (r.kind === "link" && r.url) {
+    // Same rule as the student page: anything with an embeddable form is previewed in
+    // place. A teacher checking what they just posted should not be thrown to
+    // youtube.com either -- and it is the only way to see what the student will see.
+    if (r.kind === "link" && r.url && !linkFaceOf(r.url).embedUrl) {
       globalThis.open(r.url, "_blank", "noopener,noreferrer");
       return;
     }

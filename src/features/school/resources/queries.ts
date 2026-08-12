@@ -25,6 +25,7 @@ import type {
   ResourceVisibility,
 } from "./types";
 import { compareChapters, roleWeight } from "./types";
+import { providerOf } from "./link-provider";
 
 /**
  * Where resources go when their chapter is deleted but the teacher wants to keep
@@ -108,6 +109,7 @@ interface RawResource {
   size_bytes: number | null;
   position: number;
   role: string;
+  link_provider: string | null;
   pinned: boolean;
   allow_download: boolean;
   is_published: boolean;
@@ -129,6 +131,7 @@ function mapResource(r: RawResource): ResourceRow {
     sizeBytes: r.size_bytes,
     position: r.position,
     role: r.role as ResourceRole,
+    linkProvider: r.link_provider,
     pinned: r.pinned,
     allowDownload: r.allow_download,
     isPublished: r.is_published,
@@ -171,7 +174,7 @@ function mapChapter(c: RawChapter, resources: ResourceRow[]): ChapterRow {
 }
 
 const RESOURCE_COLUMNS =
-  "id, chapter_id, group_id, title, description, kind, storage_path, url, mime_type, size_bytes, position, role, pinned, allow_download, is_published, published_at, created_at";
+  "id, chapter_id, group_id, title, description, kind, storage_path, url, mime_type, size_bytes, position, role, link_provider, pinned, allow_download, is_published, published_at, created_at";
 
 /**
  * Within a chapter: the teacher's manual order first, always.
@@ -616,6 +619,7 @@ export function useDuplicateChapter() {
               mime_type: r.mime_type,
               size_bytes: r.size_bytes,
               role: r.role as ResourceRole,
+              link_provider: r.link_provider,
               pinned: r.pinned,
               allow_download: r.allow_download,
               position: r.position,
@@ -676,6 +680,9 @@ export function useSaveResource() {
         kind: input.kind,
         storage_path: input.kind === "file" ? (input.storagePath ?? null) : null,
         url: input.kind === "link" ? (input.url?.trim() ?? null) : null,
+        // Derived here rather than taken from the form: it is a property of the URL,
+        // and a client-supplied value could disagree with the link it describes.
+        link_provider: input.kind === "link" ? providerOf(input.url) : null,
         mime_type: input.mimeType ?? null,
         size_bytes: input.sizeBytes ?? null,
         role: input.role ?? "extra",
@@ -1045,6 +1052,7 @@ export function useDuplicateResource() {
             mime_type: source.mime_type,
             size_bytes: source.size_bytes,
             role: source.role as ResourceRole,
+            link_provider: source.link_provider,
             pinned: false,
             allow_download: source.allow_download,
             is_published: false,

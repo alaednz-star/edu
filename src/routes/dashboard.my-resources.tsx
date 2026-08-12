@@ -16,6 +16,7 @@ import { useSubjectLabel } from "@/features/school/subject-label";
 import { subjectColor } from "@/features/school/session/subject-tint";
 import { ChapterSection } from "@/features/school/resources/chapter-section";
 import { CourseIdentity } from "@/features/school/resources/course-identity";
+import { linkFaceOf } from "@/features/school/resources/link-provider";
 import { ResourcePreview } from "@/features/school/resources/resource-preview";
 import {
   signResourceUrl,
@@ -136,7 +137,11 @@ function MyResourcesPage() {
   /** Opening records progress, then shows the preview. */
   const open = (r: ResourceRow) => {
     recordEvent.mutate({ resourceId: r.id, kind: "view" });
-    if (r.kind === "link" && r.url) {
+    // A link used to always leave the app, which meant a YouTube lesson dropped the
+    // student onto youtube.com with its sidebar of everything else. Anything with an
+    // embeddable form is now watched in place; only providers that refuse framing
+    // still open a tab.
+    if (r.kind === "link" && r.url && !linkFaceOf(r.url).embedUrl) {
       globalThis.open(r.url, "_blank", "noopener,noreferrer");
       return;
     }

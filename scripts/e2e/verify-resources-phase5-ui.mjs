@@ -311,6 +311,114 @@ try {
     JSON.stringify(toast).slice(0, 200),
   );
 
+  /* ================= external links embed in place ================= */
+  console.log("\n--- a YouTube link is watched in the app, not on youtube.com ---");
+  // A watch URL is what a teacher actually pastes. It cannot be framed; the embed form
+  // can. The provider is derived on save, so this also checks the write path.
+  await gotoResources();
+  await openAddDialog();
+  await page
+    .locator('[role="dialog"] button', { hasText: /Lien externe/ })
+    .first()
+    .click();
+  await page.waitForTimeout(300);
+  await page.fill("#res-title", "e2e P5 Vidéo YouTube");
+  await page.fill("#res-url", "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+  await page
+    .locator('[role="dialog"] button', { hasText: /Enregistrer/ })
+    .last()
+    .click();
+  await page.waitForTimeout(2500);
+
+  const stored = await sql(`select link_provider, url from public.resources
+                             where title = 'e2e P5 Vidéo YouTube';`);
+  check(
+    "the provider is derived and stored on save",
+    stored[0]?.link_provider === "youtube",
+    JSON.stringify(stored[0]),
+  );
+  check(
+    "the original URL is kept unchanged",
+    stored[0]?.url === "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    String(stored[0]?.url),
+  );
+
+  await page.locator("text=e2e P5 Vidéo YouTube").first().click();
+  await page.waitForTimeout(2500);
+  const frameSrc = await page
+    .locator('[role="dialog"] iframe')
+    .first()
+    .getAttribute("src")
+    .catch(() => null);
+  check(
+    "the preview frames the EMBED url, not the watch url",
+    typeof frameSrc === "string" && /youtube-nocookie\.com\/embed\/dQw4w9WgXcQ/.test(frameSrc),
+    String(frameSrc),
+  );
+  check(
+    "...so nothing tries to frame a page that refuses framing",
+    !/\/watch\?/.test(String(frameSrc)),
+    String(frameSrc),
+  );
+  check(
+    "the embed is allowed to go fullscreen",
+    (await page
+      .locator('[role="dialog"] iframe')
+      .first()
+      .getAttribute("allowfullscreen")
+      .catch(() => null)) !== null,
+  );
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(500);
+
+  console.log("\n--- a provider that refuses framing is never framed ---");
+  // OneDrive share links need a per-tenant embed call, so there is nothing safe to
+  // frame. The contract is that such a link OPENS rather than rendering a frame the
+  // student would only see an error in -- checked by intercepting window.open, since
+  // asserting on a broken iframe would prove nothing.
+  await gotoResources();
+  await page.evaluate(() => {
+    globalThis.__opened = [];
+    globalThis.open = (u) => {
+      globalThis.__opened.push(String(u));
+      return null;
+    };
+  });
+  await openAddDialog();
+  await page
+    .locator('[role="dialog"] button', { hasText: /Lien externe/ })
+    .first()
+    .click();
+  await page.waitForTimeout(300);
+  await page.fill("#res-title", "e2e P5 OneDrive");
+  await page.fill("#res-url", "https://onedrive.live.com/?id=ABC123");
+  await page
+    .locator('[role="dialog"] button', { hasText: /Enregistrer/ })
+    .last()
+    .click();
+  await page.waitForTimeout(2500);
+
+  const oneDrive = await sql(`select link_provider from public.resources
+                               where title = 'e2e P5 OneDrive';`);
+  check(
+    "the provider is recognised even though it cannot be embedded",
+    oneDrive[0]?.link_provider === "onedrive",
+    JSON.stringify(oneDrive[0]),
+  );
+
+  await page.locator("text=e2e P5 OneDrive").first().click();
+  await page.waitForTimeout(1800);
+  const openedExternally = await page.evaluate(() => globalThis.__opened ?? []);
+  check(
+    "it opens externally instead of being framed",
+    openedExternally.some((u) => u.includes("onedrive.live.com")),
+    JSON.stringify(openedExternally),
+  );
+  check(
+    "and no frame was rendered for it",
+    (await page.locator('[role="dialog"] iframe').count()) === 0,
+  );
+
   /* ================= responsive + RTL ================= */
   console.log("\n--- responsive and RTL ---");
   await gotoResources();
