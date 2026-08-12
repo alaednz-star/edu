@@ -29,6 +29,8 @@ import { ChapterDeleteDialog } from "@/features/school/resources/chapter-delete-
 import { DestinationDialog } from "@/features/school/resources/destination-dialog";
 import { EngagementPanel } from "@/features/school/resources/engagement-panel";
 import { linkFaceOf } from "@/features/school/resources/link-provider";
+import { useUploadQueue } from "@/features/school/resources/use-upload-queue";
+import { supabase } from "@/integrations/supabase/client";
 import { ResourceListView } from "@/features/school/resources/resource-list-view";
 import {
   insertRelative,
@@ -44,6 +46,7 @@ import {
 import { ResourcePreview } from "@/features/school/resources/resource-preview";
 import {
   findDuplicateFileName,
+  RESOURCE_BUCKET,
   UploadCancelledError,
   signResourceUrl,
   statsFor,
@@ -142,7 +145,8 @@ function ResourcesPage() {
   const [preview, setPreview] = useState<ResourceRow | null>(null);
   /** Which resource's engagement figures are open. Null closes the panel. */
   const [engagement, setEngagement] = useState<ResourceRow | null>(null);
-  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  /** The group the current batch is uploading into, for retries after submit returns. */
+  const [uploadGroupId, setUploadGroupId] = useState<string | null>(null);
   /**
    * The in-flight upload's abort handle, and the submission that produced it.
    *
@@ -157,6 +161,12 @@ function ResourcesPage() {
   const coursesQuery = useCourseResources(courseFilter === ALL ? null : courseFilter);
   const groupsQuery = useGroups();
   const quota = useStorageQuota();
+  /**
+   * The upload queue. Owned here rather than globally, so closing the dialog can abort
+   * everything still in flight -- a tray outliving the dialog would make "close" and
+   * "stop" two different acts.
+   */
+  const uploads = useUploadQueue();
 
   const saveChapter = useSaveChapter();
   const deleteChapter = useDeleteChapter();
@@ -287,114 +297,164 @@ function ResourcesPage() {
     }
   };
 
+  /**
+   * Saves the dialog.
+   *
+   * A LINK, or a file being replaced on an existing resource, is one row and behaves
+   * as before. Several files is a BATCH: one row per file, all in the chosen chapter,
+   * sharing the role and visibility the teacher set once. Each row's title comes from
+   * its own filename, because one shared title would be wrong for four of five files.
+   *
+   * The batch is deliberately not a transaction. A row per successful upload is the
+   * useful outcome -- if the fourth of five files fails, the teacher wants the three
+   * that worked to exist and the failed one to offer a retry, not to lose all of it.
+   */
   const submitResource = async (v: ResourceFormValue) => {
     try {
-      let storagePath: string | null | undefined = v.id ? undefined : null;
-      let mimeType: string | null = null;
-      let sizeBytes: number | null = null;
-
-      // Same filename, same chapter: ask, do not overwrite and do not quietly
-      // create a second indistinguishable row. Only on CREATE -- replacing a file
-      // on an existing resource is already an explicit act.
-      if (v.kind === "file" && v.file && !v.id) {
-        const clash = await findDuplicateFileName(v.chapterId, v.file.name);
-        if (clash) {
-          const replace = globalThis.confirm(
-            `${t("resources.upload.duplicateTitle")}
-${t("resources.upload.duplicateBody", {
-  name: v.file.name,
-})}
-
-${t("resources.upload.replace")} = OK
-${t("resources.upload.keepBoth")} = ${t("resources.dialog.cancel")}`,
-          );
-          if (replace) {
-            // Replace = delete the old row and its object, then continue creating
-            // the new one. Its `resource_events` go with it rather than being
-            // silently inherited, which would attribute old views to a new file.
-            await new Promise<void>((resolve, reject) => {
-              deleteResource.mutate(
-                { id: clash.id, storagePath: clash.storagePath },
-                { onSuccess: () => resolve(), onError: (e) => reject(e as Error) },
-              );
-            });
-          }
-          // Keeping both needs no action: the new row simply coexists.
-        }
+      // ---- link, or an edit that changes no file: unchanged single-row path.
+      if (v.kind === "link" || (v.id && v.files.length === 0)) {
+        await saveOneResource(v, {
+          storagePath: v.id ? undefined : null,
+          mimeType: null,
+          sizeBytes: null,
+        });
+        notifySuccess("resources.resource.saved");
+        setResourceDialog({ open: false });
+        uploads.clear();
+        return;
       }
 
-      if (v.kind === "file" && v.file) {
-        // The group comes from the form, not from a lookup in the loaded courses.
-        // A chapter created moments ago -- or one in a group the page is not
-        // currently filtered to -- is not in that list, and the old lookup failed
-        // the upload outright.
-        if (!v.groupId) throw new Error(t("resources.hier.selectGroup"));
-        const controller = new AbortController();
-        uploadAbort.current = controller;
-        setUploadProgress(0);
+      if (!v.groupId) throw new Error(t("resources.hier.selectGroup"));
+      // Remembered so a per-row retry, which happens after `submitResource` has
+      // returned, still knows where the files were going.
+      setUploadGroupId(v.groupId);
+
+      // ---- replacing the file on an existing resource: still one row.
+      if (v.id) {
+        const only = v.files[0];
+        if (!only) throw new Error(t("resources.dialog.fileRequired"));
+        // Already seeded by the dialog when the file was chosen.
+        const finished = await uploads.start(v.groupId);
+        const ok = finished.find((f) => f.status === "done");
+        if (!ok?.result) {
+          const failure = finished.find((f) => f.status === "failed");
+          if (failure) throw new Error(failure.error ?? t("resources.upload.failed"));
+          // Everything was cancelled; the teacher already knows.
+          notifySuccess("resources.upload.cancelled");
+          return;
+        }
+        await saveOneResource(v, {
+          storagePath: ok.result.path,
+          mimeType: ok.result.mimeType,
+          sizeBytes: ok.result.size,
+        });
+        notifySuccess("resources.resource.saved");
+        setResourceDialog({ open: false });
+        uploads.clear();
+        return;
+      }
+
+      // ---- the batch.
+      const finished = await uploads.start(v.groupId);
+      const succeeded = finished.filter((f) => f.status === "done" && f.result);
+
+      let created = 0;
+      for (const item of succeeded) {
+        const result = item.result;
+        if (!result) continue;
         try {
-          const up = await uploadResourceFile(
-            v.groupId,
-            v.file,
-            setUploadProgress,
-            controller.signal,
+          await saveOneResource(
+            {
+              ...v,
+              // Single file keeps whatever the teacher typed; a batch names each row
+              // from its own file.
+              title:
+                v.files.length === 1 && v.title.trim() ? v.title : stripExtension(item.file.name),
+            },
+            { storagePath: result.path, mimeType: result.mimeType, sizeBytes: result.size },
           );
-          storagePath = up.path;
-          mimeType = up.mimeType;
-          sizeBytes = up.size;
-        } finally {
-          uploadAbort.current = null;
-          setUploadProgress(null);
+          created += 1;
+        } catch (e) {
+          // The bytes are already in the bucket and no row points at them. Remove the
+          // object rather than leave it counting against the centre quota forever.
+          await removeOrphanObject(result.path);
+          notifyError(e);
         }
       }
 
-      await saveResource.mutateAsync({
-        ...(v.id ? { id: v.id } : {}),
-        chapterId: v.chapterId,
-        title: v.title,
-        description: v.description,
-        kind: v.kind,
-        // On edit with no new file, keep the existing path.
-        ...(v.kind === "file"
-          ? {
-              storagePath: storagePath ?? resourceDialog.resource?.storagePath ?? null,
-              mimeType: mimeType ?? resourceDialog.resource?.mimeType ?? null,
-              sizeBytes: sizeBytes ?? resourceDialog.resource?.sizeBytes ?? null,
-            }
-          : { url: v.url }),
-        role: v.role,
-        pinned: v.pinned,
-        allowDownload: v.allowDownload,
-        isPublished: v.isPublished,
-        // A local `datetime-local` value is stored as an instant.
-        publishedAt: v.publishAt ? new Date(v.publishAt).toISOString() : null,
-      });
-      notifySuccess("resources.resource.saved");
-      setResourceDialog({ open: false });
+      const failed = finished.filter((f) => f.status === "failed").length;
+      const cancelled = finished.filter((f) => f.status === "cancelled").length;
+
+      if (created > 0) {
+        notifySuccess(created === 1 ? "resources.resource.saved" : "resources.upload.batchSaved", {
+          count: created,
+        });
+      }
+      // The dialog stays OPEN while anything still needs attention, so the retry
+      // buttons are reachable. Closing on partial success would hide the failures.
+      // Nothing created and something cancelled: say so. The row said "annulé", but
+      // the dialog then closes and clears, so without this a cancelled upload gave no
+      // feedback at all.
+      if (created === 0 && cancelled > 0 && failed === 0) {
+        notifySuccess("resources.upload.cancelled");
+      }
+      if (failed === 0) {
+        setResourceDialog({ open: false });
+        uploads.clear();
+      } else if (created === 0 && cancelled === 0) {
+        notifyError(new Error(t("resources.upload.failed")));
+      }
     } catch (e) {
-      setUploadProgress(null);
-      uploadAbort.current = null;
-      // A cancel is not a failure: the teacher just did it on purpose, and an error
-      // toast for their own click is noise. Offer the retry instead.
       if (e instanceof UploadCancelledError) {
         notifySuccess("resources.upload.cancelled");
         return;
       }
-      setFailedUpload(v);
       notifyError(e);
     }
   };
 
-  /** Aborts the transfer in flight. The bytes stop; nothing is left half-written,
-   *  because the row is only created after the upload resolves. */
-  const cancelUpload = () => uploadAbort.current?.abort();
+  /**
+   * Deletes an object whose row could not be created.
+   *
+   * Storage RLS decides: the path's leading folder is the group, and only a manager of
+   * it may remove anything -- which is exactly who just uploaded.
+   */
+  const removeOrphanObject = async (path: string) => {
+    await supabase.storage.from(RESOURCE_BUCKET).remove([path]);
+  };
 
-  /** Retries the exact submission that failed, file and all. */
-  const retryUpload = () => {
-    const again = failedUpload;
-    if (!again) return;
-    setFailedUpload(null);
-    void submitResource(again);
+  /** The filename without its extension -- what a teacher would have typed. */
+  const stripExtension = (name: string) => name.replace(/\.[^.]+$/, "");
+
+  /** One row. Shared by every path above so the field mapping exists once. */
+  const saveOneResource = async (
+    v: ResourceFormValue,
+    file: {
+      storagePath: string | null | undefined;
+      mimeType: string | null;
+      sizeBytes: number | null;
+    },
+  ) => {
+    await saveResource.mutateAsync({
+      ...(v.id ? { id: v.id } : {}),
+      chapterId: v.chapterId,
+      title: v.title,
+      description: v.description,
+      kind: v.kind,
+      ...(v.kind === "file"
+        ? {
+            storagePath: file.storagePath ?? resourceDialog.resource?.storagePath ?? null,
+            mimeType: file.mimeType ?? resourceDialog.resource?.mimeType ?? null,
+            sizeBytes: file.sizeBytes ?? resourceDialog.resource?.sizeBytes ?? null,
+          }
+        : { url: v.url }),
+      role: v.role,
+      pinned: v.pinned,
+      allowDownload: v.allowDownload,
+      isPublished: v.isPublished,
+      // A local `datetime-local` value is stored as an instant.
+      publishedAt: v.publishAt ? new Date(v.publishAt).toISOString() : null,
+    });
   };
 
   /**
@@ -562,6 +622,44 @@ ${t("resources.upload.keepBoth")} = ${t("resources.dialog.cancel")}`,
       notifyError(e);
     }
   };
+
+  /**
+   * The locked destination, MEMOISED.
+   *
+   * As an inline object literal this was a new reference on every render, and the
+   * dialog's reset effect depends on it -- so every render wiped the dialog's chosen
+   * files. The queue publishing progress caused those renders, which made the bug
+   * appear only once files had been selected: pick two files, press save, and the
+   * dialog insisted a title was required because it believed nothing was selected.
+   */
+  const dialogContext = useMemo(
+    () =>
+      resourceDialog.chapterId && resourceDialog.groupId
+        ? { groupId: resourceDialog.groupId, chapterId: resourceDialog.chapterId }
+        : undefined,
+    [resourceDialog.chapterId, resourceDialog.groupId],
+  );
+
+  /**
+   * The dialog's view of the queue. Memoised because an inline object would be a new
+   * reference on every progress tick, re-rendering the dialog dozens of times a second
+   * during an upload.
+   */
+  const uploadBinding = useMemo(
+    () => ({
+      items: uploads.items,
+      onCancel: uploads.cancel,
+      onCancelAll: uploads.cancelAll,
+      onRetry: (id: string) => {
+        const groupId = resourceDialog.groupId ?? uploadGroupId;
+        if (groupId) void uploads.retry(id, groupId);
+      },
+      onRemove: uploads.remove,
+      onFilesChange: uploads.setFiles,
+      busy: uploads.busy,
+    }),
+    [uploads, resourceDialog.groupId, uploadGroupId],
+  );
 
   /** Cache key the optimistic patches target. */
   const cacheKey = resourceKeys.byGroup(courseFilter === ALL ? null : courseFilter);
@@ -754,7 +852,10 @@ ${t("resources.upload.keepBoth")} = ${t("resources.dialog.cancel")}`,
             type="button"
             className="rounded-xl"
             disabled={stats.chapters === 0}
-            onClick={() => setResourceDialog({ open: true })}
+            onClick={() => {
+              uploads.clear();
+              setResourceDialog({ open: true });
+            }}
           >
             <Plus className="size-4" aria-hidden />
             {t("resources.addResource")}
@@ -996,9 +1097,10 @@ ${t("resources.upload.keepBoth")} = ${t("resources.dialog.cancel")}`,
                       // the teacher came for. "Liste" flattens instead.
                       defaultOpen
                       query={query}
-                      onAddResource={(chapterId) =>
-                        setResourceDialog({ open: true, chapterId, groupId: course.groupId })
-                      }
+                      onAddResource={(chapterId) => {
+                        uploads.clear();
+                        setResourceDialog({ open: true, chapterId, groupId: course.groupId });
+                      }}
                       onEditChapter={(chapter) => setChapterDialog({ open: true, chapter })}
                       onDeleteChapter={setDeleting}
                       onSetChapterVisibility={toggleChapterVisibility}
@@ -1053,15 +1155,11 @@ ${t("resources.upload.keepBoth")} = ${t("resources.dialog.cancel")}`,
         onOpenChange={(v) => setResourceDialog({ open: v })}
         resource={resourceDialog.resource}
         groups={myGroups}
-        {...(resourceDialog.chapterId && resourceDialog.groupId
-          ? { context: { groupId: resourceDialog.groupId, chapterId: resourceDialog.chapterId } }
-          : {})}
+        {...(dialogContext ? { context: dialogContext } : {})}
         onCreateChapter={createChapterInline}
         onSubmit={submitResource}
-        isPending={saveResource.isPending || uploadProgress !== null}
-        uploadProgress={uploadProgress}
-        onCancelUpload={cancelUpload}
-        {...(failedUpload ? { onRetryUpload: retryUpload } : {})}
+        isPending={saveResource.isPending || uploads.busy}
+        uploads={uploadBinding}
       />
 
       <ChapterDeleteDialog

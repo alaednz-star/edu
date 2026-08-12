@@ -259,7 +259,10 @@ try {
   // By aria-label, not by text: the footer also has an "Annuler", and matching on
   // that word clicked the wrong button -- which closed the dialog and made the
   // database assertions below pass for entirely the wrong reason.
-  const cancelBtn = page.locator('[role="dialog"] button[aria-label="Interrompre"]');
+  // Phase 6 made the stop control per FILE, so its label carries the filename:
+  // "Interrompre dbg.pdf". Prefix match rather than exact -- the intent of this check
+  // (a stop control exists, and using it leaves nothing behind) is unchanged.
+  const cancelBtn = page.locator('[role="dialog"] button[aria-label^="Interrompre"]').first();
   check("a cancel control is offered during the transfer", (await cancelBtn.count()) > 0);
   await cancelBtn.click();
   // Poll for the toast instead of sleeping past it: sonner dismisses after a few

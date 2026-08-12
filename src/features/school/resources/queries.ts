@@ -1167,11 +1167,24 @@ export async function uploadResourceFile(
   file: File,
   onProgress?: (fraction: number) => void,
   signal?: AbortSignal,
+  /**
+   * Batch figures, when this file is one of several. The quota question is about the
+   * TOTAL being added and the 250 MB question is about ONE file; asking both with the
+   * same number would reject two legal 200 MB videos as one illegal 400 MB one.
+   */
+  batch?: { totalBytes: number; largestBytes: number },
 ): Promise<{ path: string; mimeType: string; size: number }> {
   const accessToken = await currentAccessToken();
   if (!accessToken) throw new Error("Session expirée.");
   if (signal?.aborted) throw new UploadCancelledError();
-  await assertUploadAllowedFn({ data: { accessToken, groupId, sizeBytes: file.size } });
+  await assertUploadAllowedFn({
+    data: {
+      accessToken,
+      groupId,
+      sizeBytes: batch?.totalBytes ?? file.size,
+      largestFileBytes: batch?.largestBytes ?? file.size,
+    },
+  });
 
   const id = globalThis.crypto.randomUUID();
   // Keep the original name (students recognise "TD3-suites.pdf") but strip

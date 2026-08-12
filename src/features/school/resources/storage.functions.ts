@@ -22,7 +22,10 @@ const signSchema = z.object({
 const uploadSchema = z.object({
   accessToken: z.string().min(1),
   groupId: z.string().uuid(),
+  /** Total bytes this batch will add, checked against the centre quota. */
   sizeBytes: z.number().int().min(0),
+  /** Largest single file, checked against the 250 MB per-file rule. */
+  largestFileBytes: z.number().int().min(0).optional(),
 });
 
 /** A signed URL, issued only if the database says this caller may have one. */
@@ -38,5 +41,10 @@ export const assertUploadAllowedFn = createServerFn({ method: "POST" })
   .validator((input: unknown) => uploadSchema.parse(input))
   .handler(async ({ data }) => {
     const { assertUploadAllowed } = await import("./storage.server");
-    return assertUploadAllowed(data.accessToken, data.groupId, data.sizeBytes);
+    return assertUploadAllowed(
+      data.accessToken,
+      data.groupId,
+      data.sizeBytes,
+      data.largestFileBytes,
+    );
   });

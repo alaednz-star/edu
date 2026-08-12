@@ -136,14 +136,31 @@ export async function assertUploadAllowed(
   accessToken: string | undefined,
   groupId: string,
   sizeBytes: number,
+  /**
+   * The largest single file in this batch. Omitted for one file, where it equals
+   * `sizeBytes`.
+   *
+   * The two limits are different questions and were being asked with one number: the
+   * centre quota is about the TOTAL about to be added, the 250 MB rule is about ONE
+   * file. Passing a batch total to both would reject two perfectly legal 200 MB videos
+   * as though they were a single 400 MB one.
+   */
+  largestFileBytes?: number,
 ): Promise<{ usedBytes: number; quotaBytes: number }> {
   await requireCaller(accessToken);
   const caller = asCaller(accessToken as string);
 
-  if (!Number.isFinite(sizeBytes) || sizeBytes < 0) {
+  const largest = largestFileBytes ?? sizeBytes;
+  if (
+    !Number.isFinite(sizeBytes) ||
+    sizeBytes < 0 ||
+    !Number.isFinite(largest) ||
+    largest < 0 ||
+    largest > sizeBytes
+  ) {
     throw new StorageAuthError("Taille de fichier invalide.", "too-large");
   }
-  if (sizeBytes > MAX_FILE_BYTES) {
+  if (largest > MAX_FILE_BYTES) {
     throw new StorageAuthError(
       "Ce fichier dépasse 250 Mo. Compressez-le ou partagez un lien Drive.",
       "too-large",

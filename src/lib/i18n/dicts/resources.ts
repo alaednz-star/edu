@@ -3,6 +3,16 @@ import type { DictionaryModule } from "../types";
 /** Course resources: chapters, files, links, student progress. */
 export const resources: DictionaryModule = {
   fr: {
+    "resources.dialog.chooseFiles": "Choisir un ou plusieurs fichiers",
+    "resources.upload.fileCount": "{count} fichier(s)",
+    "resources.upload.doneCount": "{count} envoyé(s)",
+    "resources.upload.failedCount": "{count} échec(s)",
+    "resources.upload.batchSaved": "{count} ressources ajoutées",
+    "resources.upload.status.pending": "en attente",
+    "resources.upload.status.uploading": "envoi…",
+    "resources.upload.status.done": "envoyé",
+    "resources.upload.status.failed": "échec",
+    "resources.upload.status.cancelled": "annulé",
     "resources.preview.onlineOnly": "Lecture en ligne uniquement",
     "resources.link.youtube": "YouTube",
     "resources.link.vimeo": "Vimeo",
@@ -244,6 +254,16 @@ export const resources: DictionaryModule = {
   },
 
   ar: {
+    "resources.dialog.chooseFiles": "اختر ملفًا أو عدة ملفات",
+    "resources.upload.fileCount": "{count} ملف",
+    "resources.upload.doneCount": "{count} تم إرساله",
+    "resources.upload.failedCount": "{count} فشل",
+    "resources.upload.batchSaved": "تمت إضافة {count} مورد",
+    "resources.upload.status.pending": "في الانتظار",
+    "resources.upload.status.uploading": "جارٍ الإرسال…",
+    "resources.upload.status.done": "تم الإرسال",
+    "resources.upload.status.failed": "فشل",
+    "resources.upload.status.cancelled": "أُلغي",
     "resources.preview.onlineOnly": "القراءة عبر الإنترنت فقط",
     "resources.link.youtube": "يوتيوب",
     "resources.link.vimeo": "فيميو",
@@ -468,6 +488,16 @@ export const resources: DictionaryModule = {
   },
 
   en: {
+    "resources.dialog.chooseFiles": "Choose one or more files",
+    "resources.upload.fileCount": "{count} file(s)",
+    "resources.upload.doneCount": "{count} uploaded",
+    "resources.upload.failedCount": "{count} failed",
+    "resources.upload.batchSaved": "{count} resources added",
+    "resources.upload.status.pending": "waiting",
+    "resources.upload.status.uploading": "uploading…",
+    "resources.upload.status.done": "uploaded",
+    "resources.upload.status.failed": "failed",
+    "resources.upload.status.cancelled": "cancelled",
     "resources.preview.onlineOnly": "Online reading only",
     "resources.link.youtube": "YouTube",
     "resources.link.vimeo": "Vimeo",

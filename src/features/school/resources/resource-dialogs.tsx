@@ -31,6 +31,8 @@ import {
 import { useI18n } from "@/hooks/use-i18n";
 import { cn } from "@/lib/utils";
 import { formatBytes } from "./resource-icon";
+import { UploadList } from "./upload-list";
+import type { UploadItem } from "./use-upload-queue";
 import { roleOptions } from "./resource-role";
 import { useChaptersByGroup } from "./queries";
 import type { ChapterRow, ResourceKind, ResourceRole, ResourceRow } from "./types";
@@ -316,7 +318,11 @@ export interface ResourceFormValue {
   description: string;
   kind: ResourceKind;
   url: string;
-  file: File | null;
+  /**
+   * Every chosen file. One entry is the ordinary case; several means the teacher is
+   * filing a batch into one chapter, and the page creates a row per file.
+   */
+  files: File[];
   role: ResourceRole;
   pinned: boolean;
   allowDownload: boolean;
@@ -346,9 +352,7 @@ export function ResourceDialog({
   onCreateChapter,
   onSubmit,
   isPending,
-  uploadProgress,
-  onCancelUpload,
-  onRetryUpload,
+  uploads,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -362,12 +366,22 @@ export function ResourceDialog({
   onCreateChapter?: ((groupId: string, title: string) => Promise<string | null>) | undefined;
   onSubmit: (v: ResourceFormValue) => void;
   isPending: boolean;
-  /** 0..1 while a file is uploading, null otherwise. */
-  uploadProgress: number | null;
-  /** Aborts the transfer in flight. */
-  onCancelUpload?: (() => void) | undefined;
-  /** Present only when the last attempt failed mid-upload. */
-  onRetryUpload?: (() => void) | undefined;
+  /**
+   * The page's upload queue, rendered as per-file rows. The page owns it so that
+   * closing this dialog can abort every transfer still running.
+   */
+  uploads?:
+    | {
+        items: UploadItem[];
+        onCancel: (id: string) => void;
+        onCancelAll: () => void;
+        /** Seeds the queue as soon as the selection changes. */
+        onFilesChange: (files: File[]) => void;
+        onRetry: (id: string) => void;
+        onRemove: (id: string) => void;
+        busy: boolean;
+      }
+    | undefined;
 }) {
   const { t, locale } = useI18n();
   const [groupId, setGroupId] = useState("");
@@ -379,7 +393,9 @@ export function ResourceDialog({
   const [description, setDescription] = useState("");
   const [kind, setKind] = useState<ResourceKind>("file");
   const [url, setUrl] = useState("");
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
+  /** Set while a file is dragged over the drop zone, for the visual affordance. */
+  const [dragOver, setDragOver] = useState(false);
   const [pinned, setPinned] = useState(false);
   const [allowDownload, setAllowDownload] = useState(true);
   const [isPublished, setPublished] = useState(true);
@@ -409,7 +425,8 @@ export function ResourceDialog({
     setDescription(resource?.description ?? "");
     setKind(resource?.kind ?? "file");
     setUrl(resource?.url ?? "");
-    setFile(null);
+    setFiles([]);
+    setDragOver(false);
     setPinned(resource?.pinned ?? false);
     setAllowDownload(resource?.allowDownload ?? true);
     setPublished(resource?.isPublished ?? true);
@@ -442,10 +459,16 @@ export function ResourceDialog({
     }
   };
 
+  const batch = files.length > 1;
+  /** Editing an existing resource replaces one file, never several. */
+  const editing = !!resource;
+
   const submit = () => {
     if (!groupId) return setError(t("resources.hier.selectGroup"));
     if (!chapterId) return setError(t("resources.hier.selectChapter"));
-    if (!title.trim()) return setError(t("resources.dialog.titleRequired"));
+    // A batch names each row from its own filename, so one shared title would be
+    // wrong for four of five files.
+    if (!batch && !title.trim()) return setError(t("resources.dialog.titleRequired"));
     // The chapter must belong to the chosen group. The database derives `group_id`
     // from the chapter regardless, so a mismatch here would not corrupt anything --
     // it would silently file the resource in the other group, which is worse.
@@ -456,10 +479,12 @@ export function ResourceDialog({
       // https only: a mixed-content http link would be blocked in the preview and
       // silently fail for the student.
       if (!/^https:\/\/.+/i.test(url.trim())) return setError(t("resources.dialog.urlInvalid"));
-    } else if (!resource?.storagePath && !file) {
+    } else if (!resource?.storagePath && files.length === 0) {
       return setError(t("resources.dialog.fileRequired"));
     }
-    if (file && file.size > MAX_BYTES) return setError(t("resources.dialog.fileTooLarge"));
+    // Per FILE, not per batch: the 250 MB rule is about one file, and the server
+    // re-checks the largest member for exactly this reason.
+    if (files.some((f) => f.size > MAX_BYTES)) return setError(t("resources.dialog.fileTooLarge"));
 
     onSubmit({
       ...(resource ? { id: resource.id } : {}),
@@ -469,7 +494,7 @@ export function ResourceDialog({
       description,
       kind,
       url,
-      file,
+      files,
       role,
       pinned,
       allowDownload,
@@ -485,7 +510,10 @@ export function ResourceDialog({
         // Closing while bytes are in flight has to STOP them. Abandoning the promise
         // leaves the XHR running, and the object lands in the bucket minutes later
         // with no row pointing at it -- an orphan that still counts against the quota.
-        if (!v && uploadProgress !== null) onCancelUpload?.();
+        // Closing while anything is in flight STOPS it. Abandoning the requests
+        // leaves objects landing in the bucket minutes later with no rows pointing at
+        // them -- orphans that still count against the quota.
+        if (!v && uploads?.busy) uploads.onCancelAll();
         onOpenChange(v);
       }}
     >
@@ -690,20 +718,46 @@ export function ResourceDialog({
               <Label htmlFor="res-file" className="sr-only">
                 {t("resources.dialog.chooseFile")}
               </Label>
+              {/* Also a DROP ZONE. Dragging a folderful of scans onto a dialog is how
+                  people actually move files, and the label was already the right shape
+                  for it. `dragOver` only drives the affordance -- the drop itself is
+                  the same path as the picker. */}
               <label
                 htmlFor="res-file"
-                className="focus-within:ring-ring flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-border px-4 py-4 transition-colors hover:bg-muted/50"
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragOver(true);
+                }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragOver(false);
+                  const dropped = [...(e.dataTransfer?.files ?? [])];
+                  if (dropped.length === 0) return;
+                  const next = editing ? dropped.slice(0, 1) : [...files, ...dropped];
+                  setFiles(next);
+                  uploads?.onFilesChange(next);
+                  if (next.length === 1 && !title.trim()) {
+                    setTitle(next[0]!.name.replace(/\.[^.]+$/, ""));
+                  }
+                }}
+                className={cn(
+                  "focus-within:ring-ring flex cursor-pointer items-center gap-3 rounded-xl border border-dashed px-4 py-4 transition-colors",
+                  dragOver ? "border-primary bg-primary/5" : "border-border hover:bg-muted/50",
+                )}
               >
                 <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-muted text-muted-foreground">
                   <Upload className="size-4" aria-hidden />
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium">
-                    {file
-                      ? file.name
-                      : resource?.storagePath
-                        ? t("resources.dialog.replaceFile")
-                        : t("resources.dialog.chooseFile")}
+                    {files.length === 1
+                      ? files[0]!.name
+                      : files.length > 1
+                        ? t("resources.upload.fileCount", { count: files.length })
+                        : resource?.storagePath
+                          ? t("resources.dialog.replaceFile")
+                          : t("resources.dialog.chooseFiles")}
                   </span>
                   {/* Direction-neutral: "250 MB max" reorders to "MB max 250" under
                       RTL unless it is isolated. Same fix as the file sizes on the
@@ -713,76 +767,46 @@ export function ResourceDialog({
                     dir="ltr"
                     style={{ unicodeBidi: "isolate" }}
                   >
-                    {file
-                      ? formatBytes(file.size, locale)
+                    {files.length > 0
+                      ? formatBytes(
+                          files.reduce((n, f) => n + f.size, 0),
+                          locale,
+                        )
                       : formatBytes(MAX_BYTES, locale) + " max"}
                   </span>
                 </span>
-                {file && <Paperclip className="size-4 shrink-0 text-primary" aria-hidden />}
+                {files.length > 0 && (
+                  <Paperclip className="size-4 shrink-0 text-primary" aria-hidden />
+                )}
               </label>
               <input
                 id="res-file"
                 type="file"
+                // Editing replaces ONE file, so no multiple there: a resource is one
+                // file, and letting five be chosen would raise a question the schema
+                // cannot answer.
+                {...(editing ? {} : { multiple: true })}
                 className="sr-only"
                 onChange={(e) => {
-                  const f = e.target.files?.[0] ?? null;
-                  setFile(f);
-                  // Prefill the title from the filename: most of the time it is
-                  // already what the teacher would have typed.
-                  if (f && !title.trim()) setTitle(f.name.replace(/\.[^.]+$/, ""));
+                  const chosen = [...(e.target.files ?? [])];
+                  setFiles(chosen);
+                  uploads?.onFilesChange(chosen);
+                  // Prefill the title from the filename, but only when there is one
+                  // file: a batch takes each row's title from its own name.
+                  if (chosen.length === 1 && !title.trim()) {
+                    setTitle(chosen[0]!.name.replace(/\.[^.]+$/, ""));
+                  }
                 }}
               />
-              {uploadProgress !== null && (
-                <div className="space-y-1.5">
-                  <Progress value={Math.round(uploadProgress * 100)} className="h-1.5" />
-                  <div className="flex items-center justify-between gap-2">
-                    {/* Bytes as well as percent: on a slow line "12 %" alone does not
-                        tell a teacher whether anything is actually moving. */}
-                    <p
-                      className="text-xs text-muted-foreground"
-                      dir="ltr"
-                      style={{ unicodeBidi: "isolate" }}
-                    >
-                      {Math.round(uploadProgress * 100)}%
-                      {file
-                        ? ` · ${formatBytes(file.size * uploadProgress, locale)} / ${formatBytes(file.size, locale)}`
-                        : ""}
-                    </p>
-                    {onCancelUpload && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 rounded-lg px-2 text-xs"
-                        // NOT "Annuler": the footer already has one, and two buttons
-                        // reading the same word in one dialog is a coin toss for the
-                        // person clicking. "Interrompre" says which one stops bytes.
-                        aria-label={t("resources.upload.stop")}
-                        onClick={onCancelUpload}
-                      >
-                        <X className="size-3.5" aria-hidden />
-                        {t("resources.upload.stop")}
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              )}
-              {/* A failed transfer keeps the chosen file, so retrying is one click
-                  rather than re-picking it. */}
-              {uploadProgress === null && onRetryUpload && (
-                <div className="flex items-center justify-between gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2">
-                  <p className="text-xs text-destructive">{t("resources.upload.failed")}</p>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-7 rounded-lg px-2 text-xs"
-                    onClick={onRetryUpload}
-                  >
-                    <RotateCcw className="size-3.5" aria-hidden />
-                    {t("resources.upload.retry")}
-                  </Button>
-                </div>
+              {/* Per-file progress, cancel and retry. Supplied by the page, which owns
+                  the queue -- so closing this dialog can still stop every transfer. */}
+              {uploads && (
+                <UploadList
+                  items={uploads.items}
+                  onCancel={uploads.onCancel}
+                  onRetry={uploads.onRetry}
+                  onRemove={uploads.onRemove}
+                />
               )}
             </div>
           ) : (
