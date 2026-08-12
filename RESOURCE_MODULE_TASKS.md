@@ -9,6 +9,14 @@ exists** (RULE 8).
 
 Legend: `[x]` verified · `[~]` partially done · `[ ]` not started
 
+**Numbering warning.** The phase numbers below are the ORIGINAL master-prompt
+numbering. They do not line up with the module's delivery phases: the work shipped as
+module Phase 3 closed most of tracker Phases 4, 7 and 12, and module Phase 4 closed
+tracker Phases 8 and 11. Where an item is done, the delivering phase is named.
+
+Reports: `RESOURCE_MODULE_PHASE1_REPORT.md`, `RESOURCE_MODULE_PHASE3_REPORT.md`,
+`RESOURCE_MODULE_PHASE4_REPORT.md`.
+
 ---
 
 ## Phase 0 — Audit
@@ -94,12 +102,12 @@ transactionally on a clone rewound to production shape.
 - [~] Drag-and-drop ordering, optimistic + rollback — **done, verified**
 - [~] Chapter empty state — **done**
 - [~] Chapter-specific add-resource entry — **done**
-- [ ] Pin / unpin
-- [ ] Duplicate chapter
-- [ ] Publish all / hide all
-- [ ] Move chapter to another group (where permitted)
-- [ ] "Move resources to Non classé" on delete
-- [ ] Verify permissions for every new operation
+- [x] Pin / unpin — **Phase 3**, pinned chapters sort first for students
+- [x] Duplicate chapter — **Phase 3**, copies its resources, starts hidden, bucket-side file copy
+- [x] Publish all / hide all — **Phase 3**, publishing clears pending schedules
+- [ ] Move chapter to another group — **not done**, needs reparenting; the destination cascade exists if it is ever wanted
+- [x] "Move resources to Non classé" on delete — **Phase 3**, reparents BEFORE deleting
+- [x] Verify permissions for every new operation — **Phase 3**, 39 API checks
 
 ---
 
@@ -129,19 +137,19 @@ transactionally on a clone rewound to production shape.
 - [~] Preview: PDF, image, video, audio, link — **done**
 - [~] Edit — **done**
 - [~] Delete — **done** (row then storage object)
-- [ ] Duplicate resource
+- [x] Duplicate resource — **Phase 3**, new id, no inherited events, starts hidden
 - [ ] Office preview where technically possible
 - [ ] ZIP/RAR download-only path
-- [ ] "Lecture en ligne uniquement" when `allowDownload = false`
+- [ ] "Lecture en ligne uniquement" when `allowDownload = false` — the enforcement exists (Phase 1); the label does not
 
 ---
 
 ## Phase 8 — Statistics
-- [ ] Aggregate view (do **not** read raw event rows — see audit §6.4)
-- [ ] `view` event type + decision on the UNIQUE state model
-- [ ] Panel: preview, views, downloads, last opened
-- [ ] Students who opened / never opened
-- [ ] "Relancer les élèves"
+- [x] Aggregate views — **Phase 4**: `resource_engagement` and `resource_student_engagement`, staff-gated, never raw rows
+- [x] `view` event type + append-only model — **Phase 1**
+- [x] Panel: views, distinct students, downloads, last opened — **Phase 4**
+- [x] Students who opened / never opened — **Phase 4**, not-opened listed first
+- [ ] "Relancer les élèves" — the list exists; sending the reminder does not
 - [x] Staff activity cannot pollute student statistics — **structural**: the insert policy requires `is_enrolled_in_group`, which no staff member satisfies. Verified with live accounts (the earlier pass ran against deleted ones)
 - [x] `view` event type exists and the log is append-only, so counts are real counts
 - [x] Event recording works — this was the blocker, and it is cleared
@@ -157,7 +165,7 @@ transactionally on a clone rewound to production shape.
 - [~] Important + recent rails — **done** (gated above 6 resources so they do not repeat the outline)
 - [~] Authorised resources only — **done, verified**: hidden and scheduled do not leak
 - [ ] Subject / teacher / file-type / sort filters
-- [ ] Pinned chapters surfaced as "Important"
+- [x] Pinned chapters first, pinned resources in "Important" — **Phase 3**
 
 ---
 
@@ -172,12 +180,12 @@ transactionally on a clone rewound to production shape.
 ---
 
 ## Phase 11 — Notifications
-- [ ] Add a resource value to `notification_kind`
-- [ ] Emit on publish (reuse the existing system — do not build a second one)
-- [ ] Scheduled publication fires at `publishAt`
-- [ ] Chapter published
-- [ ] Teacher reminder ("Relancer")
-- [ ] Group >3 in one chapter within an hour → "5 nouveaux documents dans …"
+- [x] `resource_published` / `chapter_published` added to `notification_kind` — **Phase 4**, own migration (the split is load-bearing: partial index predicates read the enum)
+- [x] Emit on publish — **Phase 4**, database triggers on the existing notifications table, not a second system
+- [x] Scheduled publication fires at `publishAt` — **Phase 4**, via `deliver_at` enforced in RLS. No scheduler, no drift, no double delivery
+- [x] Chapter published — **Phase 4**
+- [ ] Teacher reminder ("Relancer") — the "who has not opened it" list exists; sending is not built
+- [ ] Digest: >3 in one chapter within an hour → "5 nouveaux documents dans …" — `deliver_at` makes it possible; what a student should see is a product decision
 
 ---
 
@@ -186,8 +194,8 @@ transactionally on a clone rewound to production shape.
 - [x] Columns: Ressource, Groupe, Chapitre, Taille, Ajouté le, Téléch., Visibilité, Actions
 - [x] Sorting on title, size, date, downloads
 - [x] Tablet/mobile fold to cards
-- [ ] Multi-selection
-- [ ] Bulk publish / hide / move / delete
+- [x] Multi-selection — **Phase 3**, select one / all visible / clear
+- [x] Bulk publish / hide / move / delete — **Phase 3**, one `.in()` statement so RLS filters what the caller may touch
 
 ---
 
