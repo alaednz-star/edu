@@ -22,7 +22,13 @@ export function useNotifications(userId: string | undefined) {
         .from("notifications")
         .select("id, kind, params, read_at, created_at")
         .eq("user_id", userId as string)
-        .order("created_at", { ascending: false })
+        // A scheduled publication creates its notice when the teacher decides and
+        // marks it deliverable when the material actually appears. The read POLICY
+        // already hides pending rows from their owner; this repeats it because an
+        // admin bypasses that policy and would otherwise see their own future
+        // notices in the bell.
+        .lte("deliver_at", new Date().toISOString())
+        .order("deliver_at", { ascending: false })
         .limit(50);
       if (error) throw error;
       return (data ?? []).map((n) => ({

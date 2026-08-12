@@ -373,6 +373,7 @@ export type Database = {
       notifications: {
         Row: {
           created_at: string;
+          deliver_at: string;
           id: string;
           kind: Database["public"]["Enums"]["notification_kind"];
           params: Json;
@@ -381,6 +382,7 @@ export type Database = {
         };
         Insert: {
           created_at?: string;
+          deliver_at?: string;
           id?: string;
           kind: Database["public"]["Enums"]["notification_kind"];
           params?: Json;
@@ -389,6 +391,7 @@ export type Database = {
         };
         Update: {
           created_at?: string;
+          deliver_at?: string;
           id?: string;
           kind?: Database["public"]["Enums"]["notification_kind"];
           params?: Json;
@@ -1088,7 +1091,9 @@ export type Database = {
         | "attendance_marked"
         | "teacher_assigned"
         | "group_updated"
-        | "announcement";
+        | "announcement"
+        | "resource_published"
+        | "chapter_published";
       registration_status: "pending" | "approved" | "rejected";
       resource_event_kind: "open" | "download" | "view";
       resource_kind: "file" | "link";
@@ -1243,6 +1248,8 @@ export const Constants = {
         "teacher_assigned",
         "group_updated",
         "announcement",
+        "resource_published",
+        "chapter_published",
       ],
       registration_status: ["pending", "approved", "rejected"],
       resource_event_kind: ["open", "download", "view"],

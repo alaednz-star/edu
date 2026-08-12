@@ -4,6 +4,7 @@ import {
   BookOpenCheck,
   CalendarCheck2,
   ClipboardCheck,
+  FolderOpen,
   GraduationCap,
   PieChart,
   Users,
@@ -123,6 +124,8 @@ const NOTIFICATION_ICON: Record<NotificationKind, LucideIcon> = {
   teacher_assigned: GraduationCap,
   group_updated: Users,
   announcement: Bell,
+  resource_published: FolderOpen,
+  chapter_published: FolderOpen,
 };
 
 /** "2 h", "3 d" -- relative time reads faster than a date in a feed. */

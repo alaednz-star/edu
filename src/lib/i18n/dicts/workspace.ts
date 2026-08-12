@@ -30,6 +30,8 @@ export const workspace: DictionaryModule = {
     "notification.teacher_assigned": "Vous avez été affecté au groupe {group}.",
     "notification.group_updated": "Le groupe {group} a été mis à jour.",
     "notification.announcement": "{message}",
+    "notification.resource_published": "Nouvelle ressource dans {chapter} : {title}.",
+    "notification.chapter_published": "Nouveau chapitre disponible : {title}.",
 
     // --- relative time ---
     "time.justNow": "à l'instant",
@@ -229,6 +231,8 @@ export const workspace: DictionaryModule = {
     "notification.teacher_assigned": "تم تعيينك في فوج {group}.",
     "notification.group_updated": "تم تحديث فوج {group}.",
     "notification.announcement": "{message}",
+    "notification.resource_published": "مورد جديد في {chapter}: {title}.",
+    "notification.chapter_published": "فصل جديد متاح: {title}.",
 
     "time.justNow": "الآن",
     "time.minutesAgo": "منذ {count} د",
@@ -421,6 +425,8 @@ export const workspace: DictionaryModule = {
     "notification.teacher_assigned": "You were assigned to {group}.",
     "notification.group_updated": "Group {group} was updated.",
     "notification.announcement": "{message}",
+    "notification.resource_published": "New resource in {chapter}: {title}.",
+    "notification.chapter_published": "New chapter available: {title}.",
 
     "time.justNow": "just now",
     "time.minutesAgo": "{count} min ago",

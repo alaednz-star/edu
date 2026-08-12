@@ -3,6 +3,7 @@ import {
   CalendarCheck,
   CheckCheck,
   CheckCircle2,
+  FolderOpen,
   GraduationCap,
   Megaphone,
   UserSquare2,
@@ -54,6 +55,18 @@ const NOTIFICATION_META: Record<NotificationKind, { icon: typeof Bell; to: strin
     teacher_assigned: { icon: UserSquare2, to: "/dashboard", tone: "text-primary" },
     group_updated: { icon: GraduationCap, to: "/dashboard/my-registrations", tone: "text-accent" },
     announcement: { icon: Megaphone, to: "/dashboard", tone: "text-muted-foreground" },
+    // Both land on the student's own library: the notice exists to shorten the
+    // distance between "something arrived" and reading it.
+    resource_published: {
+      icon: FolderOpen,
+      to: "/dashboard/my-resources",
+      tone: "text-primary",
+    },
+    chapter_published: {
+      icon: FolderOpen,
+      to: "/dashboard/my-resources",
+      tone: "text-primary",
+    },
   };
 
 /** Relative time without pulling in a date library. */

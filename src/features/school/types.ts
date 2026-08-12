@@ -123,7 +123,9 @@ export type NotificationKind =
   | "attendance_marked"
   | "teacher_assigned"
   | "group_updated"
-  | "announcement";
+  | "announcement"
+  | "resource_published"
+  | "chapter_published";
 
 export interface NotificationRow {
   id: string;
