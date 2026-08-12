@@ -185,7 +185,11 @@ export function ChapterSection({
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
           aria-controls={bodyId}
-          className="focus-ring flex min-w-0 flex-1 items-center gap-2.5 rounded-lg text-start"
+          // min-h-11 is the 44px guidance figure. Measured at 375px this button was
+          // 20px tall: the text set its height, and the padding lives on the row
+          // around it rather than on the control. Expanding a chapter is the main
+          // thing a student does on a phone.
+          className="focus-ring flex min-h-11 min-w-0 flex-1 items-center gap-2.5 rounded-lg text-start"
         >
           <ChevronDown
             className={cn(

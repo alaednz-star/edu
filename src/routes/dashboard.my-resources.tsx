@@ -294,7 +294,9 @@ function MyResourcesPage() {
               aria-pressed={view === v}
               onClick={() => setView(v)}
               className={cn(
-                "focus-ring rounded-[0.35rem] px-2.5 py-1 text-xs font-medium transition-colors",
+                // Same 24px measurement as the teacher page's copy of this toggle.
+                // The student one matters more: they are the ones on a phone.
+                "focus-ring flex min-h-9 items-center rounded-[0.35rem] px-3 text-xs font-medium transition-colors",
                 view === v
                   ? "bg-card text-foreground shadow-soft"
                   : "text-muted-foreground hover:text-foreground",

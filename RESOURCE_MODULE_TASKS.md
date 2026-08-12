@@ -15,7 +15,7 @@ module Phase 3 closed most of tracker Phases 4, 7 and 12, and module Phase 4 clo
 tracker Phases 8 and 11. Where an item is done, the delivering phase is named.
 
 Reports: `RESOURCE_MODULE_PHASE1_REPORT.md`, `RESOURCE_MODULE_PHASE3_REPORT.md`,
-`RESOURCE_MODULE_PHASE4_REPORT.md`.
+`RESOURCE_MODULE_PHASE4_REPORT.md`, `RESOURCE_MODULE_PHASE5_REPORT.md`.
 
 ---
 
@@ -87,11 +87,11 @@ transactionally on a clone rewound to production shape.
 ---
 
 ## Phase 3 — Pedagogical role (§5)
-- [ ] Role selector in the create/edit dialog
-- [ ] Default ordering notes → exercises → solutions → video → homework → extra
-- [ ] Manual drag order overrides the default
-- [ ] Role visible on teacher rows and student rows
-- [ ] i18n fr/ar/en for all six roles
+- [x] Role selector in the create/edit dialog — **Phase 2**
+- [x] Default ordering notes → exercises → solutions → video → homework → extra — **Phase 2**
+- [x] Manual drag order overrides the default — **Phase 2**, verified at equal positions
+- [x] Role visible on teacher rows and student rows — **Phase 2**, badge beside the file-type badge
+- [x] i18n fr/ar/en for all six roles — **Phase 2**
 
 ---
 
@@ -115,21 +115,21 @@ transactionally on a clone rewound to production shape.
 - [~] File picker + Supabase Storage — **done**
 - [x] Client-side type/size validation — 250 MB and the widened MIME list, aligned with the bucket and the server
 - [ ] Drag-and-drop onto the dialog
-- [ ] Real progress per file
+- [x] Real progress per file — **Phase 5**, XHR rather than the SDK's fetch wrapper
 - [ ] Parallel uploads, max 3
-- [ ] Cancel an in-flight upload
-- [ ] Retry a failed upload
-- [ ] Duplicate filename → Replace / Keep both
+- [x] Cancel an in-flight upload — **Phase 5**, `abort()` stops the bytes; closing the dialog aborts too
+- [x] Retry a failed upload — **Phase 5**, keeps the chosen file
+- [x] Duplicate filename → Replace / Keep both — **Phase 3**
 - [ ] Floating upload status that survives closing the dialog
-- [ ] Quota display driven by the Phase 1 enforcement (the enforcement exists; the display does not)
+- [x] Quota display — **Phase 5**, the measured centre total against the real limit
 
 ---
 
 ## Phase 6 — External links
 - [~] Link kind + URL validation (https only) — **done**
-- [ ] Provider detection: YouTube / Drive / Dropbox / OneDrive / Other
-- [ ] YouTube title + thumbnail where available
-- [ ] Provider-appropriate preview
+- [x] Provider detection: YouTube / Vimeo / Drive / Dropbox / OneDrive / Other — **Phase 5**, by hostname, 13 unit tests
+- [ ] ~~YouTube title~~ + thumbnail — **deliberately not done**: rendering third-party thumbnails in a list sends every student's IP to Google on page load, and there is no in-product need yet
+- [x] Provider-appropriate preview — **Phase 5**, embed form where one exists, honest "opens externally" where none does
 
 ---
 
@@ -140,7 +140,7 @@ transactionally on a clone rewound to production shape.
 - [x] Duplicate resource — **Phase 3**, new id, no inherited events, starts hidden
 - [ ] Office preview where technically possible
 - [ ] ZIP/RAR download-only path
-- [ ] "Lecture en ligne uniquement" when `allowDownload = false` — the enforcement exists (Phase 1); the label does not
+- [x] "Lecture en ligne uniquement" when `allowDownload = false` — **Phase 5**, said where the button would have been
 
 ---
 
@@ -171,7 +171,7 @@ transactionally on a clone rewound to production shape.
 
 ## Phase 10 — Student preview
 - [~] PDF, image, video, audio — **done**
-- [ ] YouTube embed (no external redirect)
+- [x] YouTube embed, no external redirect — **Phase 5**, `youtube-nocookie.com/embed/`; both portals preview in place
 - [ ] Image lightbox
 - [ ] Office preview where available
 - [ ] Video resume position
@@ -205,7 +205,7 @@ transactionally on a clone rewound to production shape.
 - [x] Drag handles hidden on mobile with the menu fallback present
 - [ ] Mobile dialogs as full-screen bottom sheets
 - [ ] Chapters collapsed by default on mobile
-- [ ] Verify 44px minimum touch targets by measurement
+- [x] 44px touch targets MEASURED at 375px — **Phase 5**, `verify-resources-touch-targets.mjs`. Fixed a 20px chapter toggle and two 24px view toggles; one 28px shared-shell control reported as out of scope
 
 ---
 

@@ -888,7 +888,11 @@ ${t("resources.upload.keepBoth")} = ${t("resources.dialog.cancel")}`,
               aria-pressed={view === v}
               onClick={() => setView(v)}
               className={cn(
-                "focus-ring rounded-[0.35rem] px-2.5 py-1 text-xs font-medium transition-colors",
+                // min-h-9 on the control itself: measured at 375px this pair was
+                // 24px tall, well under the 44px guidance and under any defensible
+                // floor. The visual size is unchanged on desktop, where the row is
+                // already taller than the text.
+                "focus-ring flex min-h-9 items-center rounded-[0.35rem] px-3 text-xs font-medium transition-colors",
                 view === v
                   ? "bg-card text-foreground shadow-soft"
                   : "text-muted-foreground hover:text-foreground",

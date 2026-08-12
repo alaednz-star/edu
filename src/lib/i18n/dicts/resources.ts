@@ -3,6 +3,7 @@ import type { DictionaryModule } from "../types";
 /** Course resources: chapters, files, links, student progress. */
 export const resources: DictionaryModule = {
   fr: {
+    "resources.preview.onlineOnly": "Lecture en ligne uniquement",
     "resources.link.youtube": "YouTube",
     "resources.link.vimeo": "Vimeo",
     "resources.link.drive": "Google Drive",
@@ -243,6 +244,7 @@ export const resources: DictionaryModule = {
   },
 
   ar: {
+    "resources.preview.onlineOnly": "القراءة عبر الإنترنت فقط",
     "resources.link.youtube": "يوتيوب",
     "resources.link.vimeo": "فيميو",
     "resources.link.drive": "Google Drive",
@@ -466,6 +468,7 @@ export const resources: DictionaryModule = {
   },
 
   en: {
+    "resources.preview.onlineOnly": "Online reading only",
     "resources.link.youtube": "YouTube",
     "resources.link.vimeo": "Vimeo",
     "resources.link.drive": "Google Drive",

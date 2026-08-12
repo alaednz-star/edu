@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { Download, ExternalLink, Loader2 } from "lucide-react";
+import { Download, Eye, ExternalLink, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useI18n } from "@/hooks/use-i18n";
@@ -160,6 +160,16 @@ export function ResourcePreview({
             </div>
 
             <footer className="flex items-center gap-2 border-t border-border px-5 py-3">
+              {/* Say why, where the button would have been. `allow_download = false`
+                  is enforced server-side (the database refuses to mint an attachment
+                  URL), but silence looks like a bug -- a student assumes the button is
+                  missing rather than withheld. */}
+              {!allowDownload && resource.kind === "file" && (
+                <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Eye className="size-3.5 shrink-0" aria-hidden />
+                  {t("resources.preview.onlineOnly")}
+                </p>
+              )}
               {allowDownload && resource.kind === "file" && (
                 <Button
                   type="button"
