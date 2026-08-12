@@ -3,6 +3,16 @@ import type { DictionaryModule } from "../types";
 /** Course resources: chapters, files, links, student progress. */
 export const resources: DictionaryModule = {
   fr: {
+    "resources.engagement.title": "Consultations",
+    "resources.engagement.views": "vues",
+    "resources.engagement.students": "élèves",
+    "resources.engagement.downloads": "téléch.",
+    "resources.engagement.lastViewed": "Dernière consultation le {date}",
+    "resources.engagement.opened": "{count} élève(s) ont consulté",
+    "resources.engagement.notOpened": "{count} élève(s) n'ont pas consulté",
+    "resources.engagement.never": "jamais",
+    "resources.engagement.noStudents": "Aucun élève inscrit dans ce groupe.",
+    "resources.engagement.unknownStudent": "Élève",
     /* --- Phase 3: chapter management, publication, bulk actions --- */
     "resources.chapter.pin": "Épingler",
     "resources.chapter.unpin": "Désépingler",
@@ -221,6 +231,16 @@ export const resources: DictionaryModule = {
   },
 
   ar: {
+    "resources.engagement.title": "المشاهدات",
+    "resources.engagement.views": "مشاهدة",
+    "resources.engagement.students": "تلميذ",
+    "resources.engagement.downloads": "تنزيل",
+    "resources.engagement.lastViewed": "آخر مشاهدة في {date}",
+    "resources.engagement.opened": "{count} تلميذ شاهدوا",
+    "resources.engagement.notOpened": "{count} تلميذ لم يشاهدوا",
+    "resources.engagement.never": "أبدًا",
+    "resources.engagement.noStudents": "لا يوجد تلاميذ مسجّلون في هذا الفوج.",
+    "resources.engagement.unknownStudent": "تلميذ",
     /* --- Phase 3: chapter management, publication, bulk actions --- */
     "resources.chapter.pin": "تثبيت",
     "resources.chapter.unpin": "إلغاء التثبيت",
@@ -422,6 +442,16 @@ export const resources: DictionaryModule = {
   },
 
   en: {
+    "resources.engagement.title": "Views",
+    "resources.engagement.views": "views",
+    "resources.engagement.students": "students",
+    "resources.engagement.downloads": "downloads",
+    "resources.engagement.lastViewed": "Last viewed on {date}",
+    "resources.engagement.opened": "{count} student(s) opened it",
+    "resources.engagement.notOpened": "{count} student(s) have not opened it",
+    "resources.engagement.never": "never",
+    "resources.engagement.noStudents": "No students enrolled in this group.",
+    "resources.engagement.unknownStudent": "Student",
     /* --- Phase 3: chapter management, publication, bulk actions --- */
     "resources.chapter.pin": "Pin",
     "resources.chapter.unpin": "Unpin",

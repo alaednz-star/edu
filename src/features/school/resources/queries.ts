@@ -54,6 +54,9 @@ export const resourceKeys = {
   /** Chapters of ONE group, for the pickers. Under the same root, so saving a
    *  chapter invalidates this alongside everything else. */
   chaptersOf: (groupId: string) => ["resources", "chapters-of", groupId] as const,
+  /** Engagement figures for one resource. Under the root too, so recording a view
+   *  refreshes the panel without a second invalidation rule. */
+  engagement: (resourceId: string) => ["resources", "engagement", resourceId] as const,
 };
 
 /* ------------------------------ DERIVATION ------------------------------ */
@@ -745,6 +748,99 @@ export function useSetResourcePinned() {
       );
     },
     onSuccess: () => void qc.invalidateQueries({ queryKey: resourceKeys.root }),
+  });
+}
+
+/* ------------------------------ ENGAGEMENT ------------------------------ */
+
+export interface ResourceEngagement {
+  views: number;
+  downloads: number;
+  /** Distinct students who viewed, which is the number a teacher acts on. */
+  distinctStudents: number;
+  lastViewedAt: string | null;
+}
+
+export interface StudentEngagement {
+  studentId: string;
+  studentName: string | null;
+  opened: boolean;
+  views: number;
+  lastViewedAt: string | null;
+}
+
+/**
+ * How much attention one resource has had, and from whom.
+ *
+ * Reads the `resource_engagement` / `resource_student_engagement` views rather than
+ * the raw log: a client-side count needs every event row, and the attendance module
+ * already shipped a `.limit(2000)` that silently under-counted. Both views are staff
+ * only, gated by `can_manage_group` inside the view, so this hook returns nothing at
+ * all for a student instead of returning their own figures dressed as the class's.
+ *
+ * Fetched only while a panel is open -- `enabled` -- because a chapter of thirty
+ * resources should not fire thirty aggregate queries to render a list.
+ */
+export function useResourceEngagement(resourceId: string | null | undefined) {
+  return useQuery({
+    queryKey: resourceKeys.engagement(resourceId ?? "none"),
+    enabled: !!resourceId,
+    queryFn: async (): Promise<{
+      totals: ResourceEngagement;
+      students: StudentEngagement[];
+    }> => {
+      const [agg, per] = await Promise.all([
+        supabase
+          .from("resource_engagement")
+          .select("views, downloads, distinct_students, last_viewed_at")
+          .eq("resource_id", resourceId as string)
+          .maybeSingle(),
+        supabase
+          .from("resource_student_engagement")
+          .select("student_id, opened, views, last_viewed_at")
+          .eq("resource_id", resourceId as string),
+      ]);
+      if (agg.error) throw new Error(agg.error.message);
+      if (per.error) throw new Error(per.error.message);
+
+      // Names come from `profiles`, which a teacher may read for their own students
+      // (`profiles read scoped`). Resolved separately rather than embedded, because
+      // the view is not a table and carries no foreign key to follow.
+      // A view's columns are all nullable to Postgres, even where a join guarantees
+      // otherwise; narrow once here rather than at every use.
+      const rows = (per.data ?? []).filter(
+        (r): r is typeof r & { student_id: string } => typeof r.student_id === "string",
+      );
+      const ids = rows.map((r) => r.student_id);
+      const names = new Map<string, string>();
+      if (ids.length > 0) {
+        const { data } = await supabase.from("profiles").select("id, full_name").in("id", ids);
+        for (const p of data ?? []) names.set(p.id, p.full_name);
+      }
+
+      return {
+        totals: {
+          views: Number(agg.data?.views ?? 0),
+          downloads: Number(agg.data?.downloads ?? 0),
+          distinctStudents: Number(agg.data?.distinct_students ?? 0),
+          lastViewedAt: agg.data?.last_viewed_at ?? null,
+        },
+        students: rows
+          .map((r) => ({
+            studentId: r.student_id,
+            studentName: names.get(r.student_id) ?? null,
+            opened: r.opened ?? false,
+            views: Number(r.views ?? 0),
+            lastViewedAt: r.last_viewed_at ?? null,
+          }))
+          // Those who have not opened it first: that is the list worth acting on.
+          .sort(
+            (a, b) =>
+              Number(a.opened) - Number(b.opened) ||
+              (a.studentName ?? "").localeCompare(b.studentName ?? ""),
+          ),
+      };
+    },
   });
 }
 

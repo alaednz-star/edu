@@ -546,6 +546,20 @@ export type Database = {
             foreignKeyName: "resource_events_resource_id_fkey";
             columns: ["resource_id"];
             isOneToOne: false;
+            referencedRelation: "resource_engagement";
+            referencedColumns: ["resource_id"];
+          },
+          {
+            foreignKeyName: "resource_events_resource_id_fkey";
+            columns: ["resource_id"];
+            isOneToOne: false;
+            referencedRelation: "resource_student_engagement";
+            referencedColumns: ["resource_id"];
+          },
+          {
+            foreignKeyName: "resource_events_resource_id_fkey";
+            columns: ["resource_id"];
+            isOneToOne: false;
             referencedRelation: "resources";
             referencedColumns: ["id"];
           },
@@ -970,6 +984,75 @@ export type Database = {
           group_id: string | null;
         };
         Relationships: [];
+      };
+      resource_engagement: {
+        Row: {
+          chapter_id: string | null;
+          distinct_students: number | null;
+          downloads: number | null;
+          group_id: string | null;
+          last_downloaded_at: string | null;
+          last_viewed_at: string | null;
+          resource_id: string | null;
+          views: number | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "resources_chapter_id_fkey";
+            columns: ["chapter_id"];
+            isOneToOne: false;
+            referencedRelation: "chapters";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "resources_group_id_fkey";
+            columns: ["group_id"];
+            isOneToOne: false;
+            referencedRelation: "group_enrollment_counts";
+            referencedColumns: ["group_id"];
+          },
+          {
+            foreignKeyName: "resources_group_id_fkey";
+            columns: ["group_id"];
+            isOneToOne: false;
+            referencedRelation: "groups";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      resource_student_engagement: {
+        Row: {
+          downloads: number | null;
+          group_id: string | null;
+          last_viewed_at: string | null;
+          opened: boolean | null;
+          resource_id: string | null;
+          student_id: string | null;
+          views: number | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "registrations_student_id_fkey";
+            columns: ["student_id"];
+            isOneToOne: false;
+            referencedRelation: "students";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "resources_group_id_fkey";
+            columns: ["group_id"];
+            isOneToOne: false;
+            referencedRelation: "group_enrollment_counts";
+            referencedColumns: ["group_id"];
+          },
+          {
+            foreignKeyName: "resources_group_id_fkey";
+            columns: ["group_id"];
+            isOneToOne: false;
+            referencedRelation: "groups";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       session_attendance_summary: {
         Row: {

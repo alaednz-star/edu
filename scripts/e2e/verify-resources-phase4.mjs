@@ -1,5 +1,5 @@
 /**
- * Phase 4 verification -- publication notifications.
+ * Phase 4 verification -- publication notifications and resource engagement.
  *
  * The notification half is the interesting one, because the mechanism is unusual:
  * there is no scheduler. A notice is created when the teacher decides and carries the
@@ -97,6 +97,7 @@ const mkResource = async (chapterId, title, published, publishedAt = null) =>
   )[0].id;
 
 const tA = await signIn(fx.teacher.email);
+const tB = await signIn(other.teacher.email);
 const sTok = await signIn(fx.student.email);
 const aTok = await signIn(fx.admin.email);
 
@@ -254,6 +255,60 @@ try {
     "a student sees only their own",
     (otherStudents.body ?? []).every((n) => n.user_id === fx.student.id),
   );
+  console.log("\n--- statistics come from an aggregate, not raw rows ---");
+  await patch(tA, `resources?id=eq.${rNow}`, { is_published: true, published_at: null });
+  for (let i = 0; i < 3; i++) {
+    await asUser(sTok, "resource_events", {
+      method: "POST",
+      body: JSON.stringify([{ resource_id: rNow, student_id: fx.student.id, kind: "view" }]),
+    });
+  }
+  await asUser(sTok, "resource_events", {
+    method: "POST",
+    body: JSON.stringify([{ resource_id: rNow, student_id: fx.student.id, kind: "download" }]),
+  });
+  const stats = await json(tA, `resource_engagement?select=*&resource_id=eq.${rNow}`);
+  const row = (stats.body ?? [])[0];
+  rec(
+    "the teacher can read the aggregate",
+    stats.status === 200 && !!row,
+    JSON.stringify(stats.body).slice(0, 200),
+  );
+  rec("views are counted", Number(row?.views) === 3, `views=${row?.views}`);
+  rec(
+    "downloads are counted separately",
+    Number(row?.downloads) === 1,
+    `downloads=${row?.downloads}`,
+  );
+  rec(
+    "distinct students are counted, not events",
+    Number(row?.distinct_students) === 1,
+    `distinct=${row?.distinct_students}`,
+  );
+  rec("the last view is recorded", !!row?.last_viewed_at, String(row?.last_viewed_at));
+  const foreignStats = await json(
+    tB_or(tA),
+    `resource_engagement?select=resource_id&resource_id=eq.${foreign}`,
+  );
+  rec(
+    "a teacher sees no aggregate for another group's resource",
+    (foreignStats.body ?? []).length === 0,
+    JSON.stringify(foreignStats.body),
+  );
+  const studentStats = await json(
+    sTok,
+    `resource_engagement?select=resource_id&resource_id=eq.${rNow}`,
+  );
+  rec(
+    "a student cannot read engagement figures at all",
+    (studentStats.body ?? []).length === 0,
+    JSON.stringify(studentStats.body),
+  );
+  const adminStats = await json(
+    aTok,
+    `resource_engagement?select=resource_id&resource_id=eq.${rNow}`,
+  );
+  rec("an admin can", (adminStats.body ?? []).length === 1, JSON.stringify(adminStats.body));
 } finally {
   await sql(`delete from public.notifications
               where params ? 'resourceId' or params ? 'chapterId';`);

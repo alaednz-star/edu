@@ -8,6 +8,7 @@
 
 import { useState } from "react";
 import {
+  BarChart3,
   ChevronDown,
   Copy,
   Download,
@@ -59,6 +60,7 @@ export interface ChapterSectionProps {
   onDuplicateChapter?: ((chapter: ChapterRow) => void) | undefined;
   onDuplicateResource?: ((resource: ResourceRow) => void) | undefined;
   onSetResourcePinned?: ((resource: ResourceRow, pinned: boolean) => void) | undefined;
+  onShowEngagement?: ((resource: ResourceRow) => void) | undefined;
   onEditResource: (resource: ResourceRow) => void;
   onDeleteResource: (resource: ResourceRow) => void;
   onToggleVisibility: (resource: ResourceRow) => void;
@@ -124,6 +126,7 @@ export function ChapterSection({
   onDuplicateChapter,
   onDuplicateResource,
   onSetResourcePinned,
+  onShowEngagement,
   onEditResource,
   onDeleteResource,
   onToggleVisibility,
@@ -383,6 +386,7 @@ export function ChapterSection({
                   onDownload={onDownloadResource}
                   {...(onDuplicateResource ? { onDuplicate: onDuplicateResource } : {})}
                   {...(onSetResourcePinned ? { onSetPinned: onSetResourcePinned } : {})}
+                  {...(onShowEngagement ? { onShowEngagement } : {})}
                 />
               ))}
             </ul>
@@ -407,6 +411,7 @@ function ResourceRowItem({
   onDownload,
   onDuplicate,
   onSetPinned,
+  onShowEngagement,
 }: {
   resource: ResourceRow;
   accent: string;
@@ -421,6 +426,7 @@ function ResourceRowItem({
   onDownload: (r: ResourceRow) => void;
   onDuplicate?: ((r: ResourceRow) => void) | undefined;
   onSetPinned?: ((r: ResourceRow, pinned: boolean) => void) | undefined;
+  onShowEngagement?: ((r: ResourceRow) => void) | undefined;
 }) {
   const { t, locale } = useI18n();
   const face = faceOf(resource.kind, resource.mimeType);
@@ -596,6 +602,12 @@ function ResourceRowItem({
                   <DropdownMenuItem onClick={() => onDuplicate(resource)}>
                     <Copy className="size-4" aria-hidden />
                     {t("resources.resource.duplicate")}
+                  </DropdownMenuItem>
+                )}
+                {onShowEngagement && (
+                  <DropdownMenuItem onClick={() => onShowEngagement(resource)}>
+                    <BarChart3 className="size-4" aria-hidden />
+                    {t("resources.engagement.title")}
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuSeparator />

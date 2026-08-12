@@ -26,6 +26,7 @@ import { ChapterSection, type DragBinding } from "@/features/school/resources/ch
 import { CourseIdentity } from "@/features/school/resources/course-identity";
 import { ChapterDeleteDialog } from "@/features/school/resources/chapter-delete-dialog";
 import { DestinationDialog } from "@/features/school/resources/destination-dialog";
+import { EngagementPanel } from "@/features/school/resources/engagement-panel";
 import { ResourceListView } from "@/features/school/resources/resource-list-view";
 import {
   insertRelative,
@@ -135,6 +136,8 @@ function ResourcesPage() {
     rows: ResourceRow[];
   }>({ open: false, mode: "move", rows: [] });
   const [preview, setPreview] = useState<ResourceRow | null>(null);
+  /** Which resource's engagement figures are open. Null closes the panel. */
+  const [engagement, setEngagement] = useState<ResourceRow | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
 
   const coursesQuery = useCourseResources(courseFilter === ALL ? null : courseFilter);
@@ -940,6 +943,7 @@ ${t("resources.upload.keepBoth")} = ${t("resources.dialog.cancel")}`,
                       onPublishAll={publishAll}
                       onDuplicateChapter={copyChapter}
                       onSetResourcePinned={toggleResourcePinned}
+                      onShowEngagement={setEngagement}
                       onDuplicateResource={(resource) =>
                         setDestination({ open: true, mode: "duplicate", rows: [resource] })
                       }
@@ -1015,6 +1019,8 @@ ${t("resources.upload.keepBoth")} = ${t("resources.dialog.cancel")}`,
         onConfirm={confirmDestination}
         isPending={bulkMove.isPending || duplicateResource.isPending}
       />
+
+      <EngagementPanel resource={engagement} onClose={() => setEngagement(null)} />
 
       <ResourcePreview resource={preview} onClose={() => setPreview(null)} canDownload />
     </>
