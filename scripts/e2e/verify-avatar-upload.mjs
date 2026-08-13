@@ -181,7 +181,18 @@ try {
     String(unchanged[0]?.avatar_url).slice(0, 90),
   );
 } finally {
-  const paths = await sql(`select name from storage.objects where bucket_id='avatars';`);
+  /*
+    ONLY the fixtures' own folders.
+
+    This used to delete every object in the `avatars` bucket. Every path the suite writes is
+    under a fixture user's own id -- the storage policy is the thing being tested and it does
+    not allow anything else -- so the wider delete was never needed, and it took the local
+    demo teachers' photos with it every run. On a developer's machine it would take theirs.
+  */
+  const owners = [fx.teacher?.id, fx.student?.id, fx.admin?.id].filter(Boolean);
+  const paths = await sql(`select name from storage.objects
+                            where bucket_id='avatars'
+                              and (${owners.map((id) => `name like '${id}/%'`).join(" or ")});`);
   if (paths.length > 0) {
     await fetch(`${API}/storage/v1/object/avatars`, {
       method: "DELETE",

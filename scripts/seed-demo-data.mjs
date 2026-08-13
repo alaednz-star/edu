@@ -599,8 +599,12 @@ try {
   for (const g of GROUPS) {
     if (g.fill === 0) continue;
     const ids = fillerIds.slice(0, g.fill);
-    await sql(`insert into public.registrations (student_id, group_id, status)
-               values ${ids.map((id) => `('${id}', '${groupIds[g.key]}', 'pending')`).join(",")};`);
+    await sql(`insert into public.registrations (student_id, group_id, status, created_at)
+               values ${ids
+                 .map(
+                   (id) => `('${id}', '${groupIds[g.key]}', 'pending', now() - interval '10 days')`,
+                 )
+                 .join(",")};`);
     await sql(`update public.registrations
                   set status = 'approved', decided_at = now() - interval '3 days'
                 where group_id = '${groupIds[g.key]}' and status = 'pending';`);
@@ -610,8 +614,9 @@ try {
   step("The demo student's three registration states");
   const reg = async (key, status, note) => {
     const r = (
-      await sql(`insert into public.registrations (student_id, group_id, status)
-                 values ('${studentId}', '${groupIds[key]}', 'pending') returning id;`)
+      await sql(`insert into public.registrations (student_id, group_id, status, created_at)
+                 values ('${studentId}', '${groupIds[key]}', 'pending', now() - interval '5 days')
+                 returning id;`)
     )[0];
     if (status !== "pending") {
       await sql(`update public.registrations

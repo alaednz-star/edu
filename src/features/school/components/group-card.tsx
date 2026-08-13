@@ -8,6 +8,11 @@
  * stops looking like one product, so this is the only one now and both pages adapt their
  * data into it rather than drawing their own.
  *
+ * Three surfaces draw it now -- the catalogue, "Mes inscriptions" and "Mes cours" -- and
+ * they differ only in what they put in the badge, meta and action slots. That is why the
+ * page-level content is passed in rather than branched on here: a `variant` prop would be
+ * the two implementations again, one file further down.
+ *
  * It is PRESENTATIONAL. It takes a view model, a badge and an action area; it fetches
  * nothing, decides no state, and knows nothing about enrolment rules. `blockedBy`
  * precedence, withdrawal, approval and the one-per-subject rule all stay where they were.
@@ -33,6 +38,21 @@ import type { ScheduleSlot } from "@/features/school/types";
 import { useI18n } from "@/hooks/use-i18n";
 import { formatDecimal } from "@/lib/format";
 import { cn } from "@/lib/utils";
+
+/**
+ * The grid all three student course surfaces lay their cards out in.
+ *
+ * It lives beside the card rather than in each route because "the catalogue and Mes cours
+ * look like one product" is a property of the pair, not of either page: when the gap was
+ * 24px on one and 16px on the other, the same card read as two different sizes.
+ *
+ * `items-start` is the important part. Grid items stretch by default, so a row containing
+ * one open card (two buttons) and one rejected card (a panel with the administration's
+ * note) stretched the short one to the tall one's height and left ~110px of empty card
+ * under its buttons -- measured, not guessed. Aligning to the start lets each card end
+ * where its content ends; the row is still aligned, at the top, where the eye starts.
+ */
+export const CARD_GRID = "grid items-start gap-6 lg:grid-cols-2";
 
 /** Everything the card draws. Both pages map their own row into this. */
 export interface GroupCardView {
@@ -76,6 +96,7 @@ export function GroupCard({
   const room = view.schedules.find((s) => s.room)?.room ?? null;
   const hours = weeklyHours(view.schedules);
   const first = view.schedules[0];
+  const hasTeacher = (view.teacherName ?? "").trim().length > 0;
 
   /*
     `line-clamp-2`, not `truncate`.
@@ -87,7 +108,7 @@ export function GroupCard({
   */
   const identity = (
     <>
-      <h3 className="line-clamp-2 text-[17px] font-semibold leading-snug tracking-tight">
+      <h3 className="line-clamp-2 text-lg font-semibold leading-snug tracking-tight">
         {unavailable ? t("myReg.unavailableGroup") : view.groupName}
       </h3>
       {unavailable ? (
@@ -106,7 +127,13 @@ export function GroupCard({
   return (
     <article
       className={cn(
-        "surface-card flex h-full flex-col overflow-hidden p-0",
+        // NO `h-full`, and the body below carries no `flex-1`.
+        //
+        // Both were here to give a row of cards one height. They did, by stretching the
+        // shortest card in the row and leaving the slack inside it: an open card next to a
+        // rejected one ended with 111px of blank card below its buttons. Height now comes
+        // from content, and `CARD_GRID` aligns the row at the top instead.
+        "surface-card overflow-hidden p-0",
         "transition-[transform,box-shadow,border-color] duration-150 ease-out",
         "hover:-translate-y-0.5 hover:border-border hover:shadow-[0_14px_32px_rgba(18,33,29,.12)]",
       )}
@@ -144,7 +171,7 @@ export function GroupCard({
         ) : null}
       </div>
 
-      <div className="flex flex-1 flex-col px-5 pb-5">
+      <div className="px-5 pb-5">
         {/*
           The teacher crosses the boundary. 72px with a card-coloured border and a soft
           shadow, pulled up by exactly half its height so it is centred on the seam.
@@ -153,7 +180,16 @@ export function GroupCard({
           <PersonAvatar
             name={view.teacherName}
             url={view.teacherAvatarUrl}
-            accent={unavailable ? undefined : accent}
+            /*
+              No subject tint when there is nobody there.
+
+              `groups.teacher_id` is ON DELETE SET NULL, so a group really can outlive its
+              teacher -- this is a state, not a rendering accident. Tinting the disc in the
+              subject colour would dress the gap up as a person; left neutral, the "?" from
+              `PersonAvatar`'s own initials fallback reads as the absence it is, next to a
+              line that says so in words.
+            */
+            accent={unavailable || !hasTeacher ? undefined : accent}
             ring
             className="size-[72px] shrink-0 bg-card text-lg"
           />
@@ -161,8 +197,13 @@ export function GroupCard({
             <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               {t("dash.registration.teacher")}
             </p>
-            <p className="truncate text-sm font-semibold">
-              {view.teacherName ?? t("dash.registration.noTeacher")}
+            <p
+              className={cn(
+                "truncate text-sm",
+                hasTeacher ? "font-semibold" : "italic text-muted-foreground",
+              )}
+            >
+              {hasTeacher ? view.teacherName : t("dash.registration.noTeacher")}
             </p>
           </div>
         </div>
@@ -170,7 +211,7 @@ export function GroupCard({
         {/* Plain text. Opening the details used to be a click on the title, which was an
             invisible affordance; it is an explicit "Détails" button in the action area now,
             so the title does not also need to be a control. */}
-        <div className="mt-2.5 min-w-0">{identity}</div>
+        <div className="mt-3 min-w-0">{identity}</div>
 
         {!unavailable && (
           <>
@@ -224,25 +265,26 @@ export function GroupCard({
               version of the same fact and still says whether this is a class of 8 or 30.
               No ratio, no bar, no remaining-seats claim.
             */}
-            <p className="mt-2.5 flex items-center gap-1.5 text-[13px] text-muted-foreground">
+            <p className="mt-3 flex items-center gap-1.5 text-[13px] text-muted-foreground">
               <Users className="size-3.5 shrink-0" style={{ color: accent }} aria-hidden />
               {t("dash.registration.groupSize", { count: view.maxStudents })}
             </p>
           </>
         )}
 
-        {meta ? <div className="mt-2.5">{meta}</div> : null}
+        {meta ? <div className="mt-3">{meta}</div> : null}
 
         {/*
-          The action area follows the content immediately -- NOT `mt-auto`.
+          The action area follows the content immediately: no `mt-auto`, and now no stretched
+          card above it either.
 
-          `mt-auto` was the obvious choice and it was wrong: `h-full` stretches every card
-          to its grid row, so in any row whose other card is taller, `mt-auto` opened ~80px
-          of void between the capacity line and the button. Equal-height boxes are still
-          worth having, so the slack now lands as extra padding under the action band, where
-          it reads as breathing room instead of as a hole in the middle of the card.
+          `mt-auto` was tried first and opened a void in the middle of the card; keeping the
+          stretch and letting the slack fall below the buttons only moved the hole to the
+          bottom. Neither is a layout -- they are both ways of paying for equal heights with
+          empty space. The card is sized by its content and the row aligns at the top, so
+          this padding is the only gap left, and it is 16px on every state.
         */}
-        {actions ? <footer className="pt-3.5">{actions}</footer> : null}
+        {actions ? <footer className="pt-4">{actions}</footer> : null}
       </div>
     </article>
   );
@@ -261,12 +303,21 @@ export function StatePanel({
   tone,
   icon: Icon,
   title,
+  value,
   hint,
   action,
 }: {
   tone: "success" | "pending" | "rejected" | "blocked" | "neutral";
   icon?: typeof Users | undefined;
   title: string;
+  /**
+   * A fact this panel exists to state, rendered stronger than the hint below it.
+   *
+   * "Mes cours" needs it: the panel there is not a decision waiting to be made but the
+   * next session, and the date is the point of the panel rather than a footnote to its
+   * heading. It is a `ReactNode` because a time range has to be bidi-isolated as one run.
+   */
+  value?: ReactNode | undefined;
   hint?: string | undefined;
   action?: ReactNode | undefined;
 }) {
@@ -286,19 +337,37 @@ export function StatePanel({
   } as const;
   const [border, bg, text] = TONES[tone].split(" ");
 
+  /*
+    One geometry for every state, so the five of them read as one family: same radius, same
+    12px padding, icon at the start of the heading, value under it, hint under that, action
+    last with 10px above it. `text-start` is explicit rather than inherited -- this panel is
+    dropped into page footers, and one of them used to centre its text.
+  */
   return (
-    <div className={cn("rounded-xl border p-3", border, bg)}>
+    <div
+      // A stable hook for the browser suites, like `data-person-avatar`: the five states are
+      // supposed to be one family, and the only way to prove that is to measure all of them.
+      data-state-panel=""
+      className={cn("rounded-xl border p-3 text-start", border, bg)}
+    >
       <p className={cn("flex items-center gap-1.5 text-sm font-semibold", text)}>
         {Icon ? <Icon className="size-4 shrink-0" aria-hidden /> : null}
         <span className="min-w-0">{title}</span>
       </p>
+      {value ? <p className="mt-1 text-[13px] font-semibold text-foreground">{value}</p> : null}
       {hint ? <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p> : null}
       {action ? <div className="mt-2.5">{action}</div> : null}
     </div>
   );
 }
 
-/** One metadata column: compact tinted panel, small icon, small caps label, strong value. */
+/**
+ * One metadata column: compact tinted panel, small icon, small caps label, strong value.
+ *
+ * Tightened from `rounded-xl` and a loose two-line stack, which at three across read as
+ * three large pills competing with the title. The label sets its own leading so the block
+ * is the height of its two lines of text plus 8px of padding, and nothing more.
+ */
 export function Fact({
   icon: Icon,
   accent,
@@ -313,12 +382,12 @@ export function Fact({
   className?: string | undefined;
 }) {
   return (
-    <div className={cn("min-w-0 rounded-xl bg-muted/60 px-2.5 py-1.5", className)}>
-      <dt className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+    <div className={cn("min-w-0 rounded-lg bg-muted/60 px-2.5 py-2", className)}>
+      <dt className="flex items-center gap-1 text-[10px] font-semibold uppercase leading-none tracking-wider text-muted-foreground">
         <Icon className="size-3 shrink-0" style={{ color: accent }} aria-hidden />
         <span className="truncate">{label}</span>
       </dt>
-      <dd className="mt-0.5 truncate text-xs font-semibold">{children}</dd>
+      <dd className="mt-1.5 truncate text-[13px] font-semibold leading-none">{children}</dd>
     </div>
   );
 }

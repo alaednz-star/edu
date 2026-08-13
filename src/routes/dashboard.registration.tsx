@@ -59,6 +59,7 @@ import {
 import { RequireAuth } from "@/features/auth/require-auth";
 import { PersonAvatar } from "@/features/profile/person-avatar";
 import {
+  CARD_GRID,
   Fact,
   GroupCard,
   StatePanel,
@@ -302,9 +303,9 @@ function RegistrationPage() {
       </div>
 
       {isLoading ? (
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className={CARD_GRID}>
           {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-[420px] rounded-2xl" />
+            <Skeleton key={i} className="h-[380px] rounded-2xl" />
           ))}
         </div>
       ) : items.length === 0 ? (
@@ -329,7 +330,7 @@ function RegistrationPage() {
           }
         />
       ) : (
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className={CARD_GRID}>
           {visible.map((item) => (
             <CatalogueCard
               key={item.group.id}
@@ -835,7 +836,7 @@ function GroupDetailsSheet({
 /**
  * The last step before a request is sent.
  *
- * It restates what is being requested -- group, teacher, when, how much -- because the
+ * It restates what is being requested -- group, teacher and when -- because the
  * card is a browsing surface, and a student clicking through a grid of them should not be
  * able to enrol in the wrong class by aiming badly. It also says plainly that the seat is
  * not booked yet: the administration decides.

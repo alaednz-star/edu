@@ -10,6 +10,10 @@
  * `actions` stays a slot rather than baked-in buttons because what a student can do depends
  * on status, and that decision belongs to the page: an approved registration offers the
  * timetable, a rejected one offers browsing again, a pending one can be withdrawn.
+ *
+ * `meta` is a slot for the same reason. The decision timeline is the right line for a page
+ * about requests; on "Mes cours" the request is settled and old news, and what belongs
+ * there is since when the student has been enrolled. Same card, different sentence.
  */
 
 import type { ReactNode } from "react";
@@ -36,9 +40,12 @@ function viewOfRegistration(item: MyRegistration): GroupCardView {
 
 export function RegistrationCard({
   item,
+  meta,
   actions,
 }: {
   item: MyRegistration;
+  /** Overrides the decision timeline. Omit it on any page about requests. */
+  meta?: ReactNode | undefined;
   actions?: ReactNode | undefined;
 }) {
   const { t, locale } = useI18n();
@@ -57,12 +64,14 @@ export function RegistrationCard({
         when the request was made and when it was answered.
       */
       meta={
-        <p className="text-[11px] text-muted-foreground">
-          {t("myReg.submittedOn", { date: formatDate(item.createdAt, locale) })}
-          {item.decidedAt
-            ? ` · ${t("myReg.decidedOn", { date: formatDate(item.decidedAt, locale) })}`
-            : ""}
-        </p>
+        meta ?? (
+          <p className="text-xs text-muted-foreground">
+            {t("myReg.submittedOn", { date: formatDate(item.createdAt, locale) })}
+            {item.decidedAt
+              ? ` · ${t("myReg.decidedOn", { date: formatDate(item.decidedAt, locale) })}`
+              : ""}
+          </p>
+        )
       }
       actions={actions}
     />

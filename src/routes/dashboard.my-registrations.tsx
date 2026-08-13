@@ -25,7 +25,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { RequireAuth } from "@/features/auth/require-auth";
-import { StatePanel } from "@/features/school/components/group-card";
+import { CARD_GRID, StatePanel } from "@/features/school/components/group-card";
 import { RegistrationCard } from "@/features/school/components/registration-card";
 import { useMyRegistrationCards, type MyRegistration } from "@/features/school/my-registrations";
 import { useCancelRegistration } from "@/features/school/queries";
@@ -103,7 +103,7 @@ function MyRegistrationsPage() {
       title={t("myReg.title")}
       description={t("myReg.description", { count: String(items.length) })}
       actions={
-        <Button asChild className="rounded-xl">
+        <Button asChild variant="outline" className="h-11 rounded-xl">
           <Link to="/dashboard/registration">
             <Search className="size-4" aria-hidden />
             {t("myReg.browse")}
@@ -126,7 +126,7 @@ function MyRegistrationsPage() {
     return (
       <>
         {header}
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className={CARD_GRID}>
           {Array.from({ length: 4 }).map((_, i) => (
             <Skeleton key={i} className="h-[420px] rounded-2xl" />
           ))}
@@ -188,7 +188,7 @@ function MyRegistrationsPage() {
           className="border-none shadow-none"
         />
       ) : (
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className={CARD_GRID}>
           {visible.map((item) => (
             <RegistrationCard
               key={item.id}

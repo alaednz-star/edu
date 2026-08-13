@@ -1,7 +1,8 @@
 /**
  * The redesigned enrolment and profile pages, in a real browser.
  *
- * Scope: `/dashboard/registration`, `/dashboard/my-registrations`, `/dashboard/profile`.
+ * Scope: `/dashboard/registration`, `/dashboard/my-classes`, `/dashboard/my-registrations`,
+ * `/dashboard/profile`.
  * The security questions are answered over the API in `verify-enrollment-security.mjs`;
  * this suite is about what a student actually sees and can reach --
  *
@@ -11,8 +12,12 @@
  *     below it outweighs, a 72-76px avatar centred on its lower edge, three equal metadata
  *     columns, two columns per row at 24px, and a subject/level line that wraps rather than
  *     clipping to an ellipsis
- *   - both pages render the same card -- the catalogue and "Mes inscriptions" are checked
- *     against the same geometry, because they used to be two implementations
+ *   - all three course surfaces render the same card -- the catalogue, "Mes cours" and
+ *     "Mes inscriptions" are checked against the same geometry and the same column width,
+ *     because they used to be two implementations and three different grids
+ *   - a card is as tall as its content: no card carries a large empty region below its
+ *     last element, which is what equal-height stretching used to pay for the alignment
+ *   - a group whose teacher's account is gone says so, and is not dressed up as a person
  *   - nothing is said twice: no status chip in a banner whose panel already states it, and
  *     no schedule pills repeating the HORAIRE column
  *   - ZERO pricing UI, on a fixture group that deliberately HAS a price in the database
@@ -123,6 +128,15 @@ const sameSubject = await makeGroup({
   capacity: 20,
   weekday: 4,
 });
+// `groups.teacher_id` is ON DELETE SET NULL, so a class really can outlive its teacher.
+// The card has to have something honest to say when it does.
+const orphan = await makeGroup({
+  name: `${TAG} UI Français`,
+  subjectKey: "french",
+  capacity: 20,
+  weekday: 5,
+});
+await sql(`update public.groups set teacher_id = null where id = '${orphan.id}';`);
 
 // The student: onboarded, in the right level and stream, with a photo-less teacher so the
 // initials fallback is exercised, and one approved maths enrolment so `takenSubject` and
@@ -311,9 +325,12 @@ try {
     const heights = row.map((c) => Math.round(c.getBoundingClientRect().height));
     const a = row[0].getBoundingClientRect();
     const b = row[1] ? row[1].getBoundingClientRect() : null;
+    const tops = row.map((c) => Math.round(c.getBoundingClientRect().top));
     return {
       columns: row.length,
       heights,
+      tops,
+      topsEqual: new Set(tops).size === 1,
       gap: b ? Math.round(Math.abs(b.left - a.right)) : null,
       widthsEqual: !b || Math.abs(Math.round(b.width) - Math.round(a.width)) <= 1,
     };
@@ -321,10 +338,62 @@ try {
   rec("two cards per row on desktop", grid.columns === 2, `${grid.columns}`);
   rec("of equal width", grid.widthsEqual);
   rec("with a 24px gap", grid.gap === 24, `${grid.gap}px`);
+  rec("aligned at the top of the row", grid.topsEqual, JSON.stringify(grid.tops));
+
+  /*
+    CONTENT SIZES THE CARD.
+
+    This assertion is the inverse of the one it replaces. Equal heights were the earlier
+    requirement and they were bought with `h-full`: the shorter card in a row stretched to
+    the taller one and the difference sat inside it as blank card -- 111px under the buttons
+    of an open group next to a rejected one. Every card is now measured for the distance
+    between its last element and its own bottom edge, which should be the card's padding and
+    nothing else, and the row is aligned at the top instead.
+  */
+  const slack = await page.evaluate(() =>
+    [...document.querySelectorAll("main article")].map((el) => {
+      const body = el.lastElementChild;
+      const last = body.lastElementChild;
+      return {
+        name: el.querySelector("h3")?.textContent?.trim().slice(0, 28),
+        px: Math.round(el.getBoundingClientRect().bottom - last.getBoundingClientRect().bottom),
+      };
+    }),
+  );
+  const padded = slack.filter((c) => c.px > 28);
   rec(
-    "and level bottoms -- no stray height differences",
-    new Set(grid.heights).size === 1,
-    JSON.stringify(grid.heights),
+    "no card carries a large empty region below its content",
+    padded.length === 0,
+    padded.length ? JSON.stringify(padded) : `worst ${Math.max(...slack.map((c) => c.px))}px`,
+  );
+
+  /* ---------------------------------------------------------------- teacher, or nobody */
+  const orphanCard = cardFor(page, orphan.name);
+  const orphanText = await orphanCard.innerText();
+  rec(
+    "a group with no teacher says the record is empty, not that the class has no teacher",
+    /Enseignant non renseigné/i.test(orphanText) && !/Sans enseignant/i.test(orphanText),
+    JSON.stringify(orphanText.split("\n").find((l) => /enseignant/i.test(l)) ?? ""),
+  );
+  // The tint is an inline `color-mix` of the subject colour. A group with nobody in the
+  // teacher slot must not get it: a coloured disc reads as a person who is simply unnamed.
+  const tints = await page.evaluate(() =>
+    [...document.querySelectorAll("main article")].map((el) => ({
+      name: el.querySelector("h3")?.textContent?.trim(),
+      // A teacher with a photo has no fallback disc to tint at all, so only the initials
+      // avatars are evidence either way.
+      hasFallback: !!el.querySelector("[data-person-avatar] > span"),
+      tinted: !!el
+        .querySelector("[data-person-avatar] > span")
+        ?.getAttribute("style")
+        ?.includes("color-mix"),
+    })),
+  );
+  const orphanTint = tints.find((c) => c.name === orphan.name);
+  rec(
+    "and its avatar stays neutral rather than borrowing the subject colour",
+    tints.some((c) => c.tinted) && orphanTint?.hasFallback === true && orphanTint.tinted === false,
+    JSON.stringify(tints.filter((c) => c.hasFallback)),
   );
 
   /* ================================================================ details sheet */
@@ -418,6 +487,41 @@ try {
     !/chevauche|conflit d.horaire|overlaps/i.test(pageText),
   );
 
+  // With open, pending, approved and takenSubject all on screen at once, the cards must NOT
+  // agree on a height: each one ends where its own state panel ends. Equal heights here
+  // would mean the stretch is back.
+  const stateHeights = await page.evaluate(() =>
+    [...document.querySelectorAll("main article")].map((el) => ({
+      name: el.querySelector("h3")?.textContent?.trim().slice(0, 24),
+      h: Math.round(el.getBoundingClientRect().height),
+    })),
+  );
+  rec(
+    "cards in different states differ in height, because they differ in content",
+    new Set(stateHeights.map((c) => c.h)).size > 1,
+    JSON.stringify(stateHeights.map((c) => c.h)),
+  );
+
+  // The geometry every state panel shares, measured once here and compared on Mes cours.
+  const cataloguePanel = await page.evaluate(() => {
+    const panels = [...document.querySelectorAll("main article [data-state-panel]")];
+    const first = panels[0];
+    if (!first) return null;
+    const style = (el) =>
+      `${getComputedStyle(el).borderTopLeftRadius}|${getComputedStyle(el).padding}`;
+    return {
+      count: panels.length,
+      radius: getComputedStyle(first).borderTopLeftRadius,
+      pad: getComputedStyle(first).padding,
+      allIdentical: new Set(panels.map(style)).size === 1,
+    };
+  });
+  rec(
+    "every state panel on the catalogue shares one radius and one padding",
+    !!cataloguePanel && cataloguePanel.allIdentical,
+    JSON.stringify(cataloguePanel),
+  );
+
   /* ================================================================ my-registrations */
   console.log("\n--- my registrations ---");
   await page.goto(`${APP}/dashboard/my-registrations`, { waitUntil: "networkidle" });
@@ -482,6 +586,80 @@ try {
                                     where student_id='${fx.student.id}' and group_id='${scarce.id}';`);
   rec("and the row is gone", afterWithdraw[0].c === 0, `${afterWithdraw[0].c}`);
 
+  /* ================================================================ my-classes */
+  console.log("\n--- mes cours ---");
+  await page.goto(`${APP}/dashboard/my-classes`, { waitUntil: "networkidle" });
+  await page.waitForTimeout(1500);
+  const classCard = page.locator("main article").first();
+  rec("the approved class appears on Mes cours", (await classCard.count()) > 0);
+
+  const classGeo = await page.evaluate(() => {
+    const el = document.querySelector("main article");
+    if (!el) return null;
+    const body = el.lastElementChild;
+    const footer = el.querySelector("footer");
+    const panel = footer?.querySelector("[data-state-panel]");
+    return {
+      w: Math.round(el.getBoundingClientRect().width),
+      bannerH: Math.round(el.firstElementChild.getBoundingClientRect().height),
+      avatarW: Math.round(el.querySelector("[data-person-avatar]").getBoundingClientRect().width),
+      facts: el.querySelectorAll("dl > div").length,
+      hasCapacity: /Groupe de \d+ élèves/.test(el.textContent ?? ""),
+      // The footer used to be a centred 12px line -- the only centred text on any card.
+      footerAlign: panel ? getComputedStyle(panel).textAlign : null,
+      panelRadius: panel ? getComputedStyle(panel).borderTopLeftRadius : null,
+      panelPad: panel ? getComputedStyle(panel).padding : null,
+      slack: Math.round(
+        el.getBoundingClientRect().bottom - body.lastElementChild.getBoundingClientRect().bottom,
+      ),
+    };
+  });
+  rec(
+    "Mes cours draws the identical card as the catalogue",
+    !!classGeo &&
+      classGeo.bannerH === 88 &&
+      classGeo.avatarW >= 72 &&
+      classGeo.avatarW <= 76 &&
+      classGeo.facts === 3 &&
+      classGeo.hasCapacity,
+    JSON.stringify(classGeo),
+  );
+  // One card in a two-column grid is one COLUMN -- not a banner stretched across the page,
+  // and not a narrow strip beside a dead area. The catalogue's own card width, measured at
+  // the same viewport, is the only definition of "right" that keeps the screens one product.
+  rec(
+    "and it is exactly one catalogue column wide",
+    !!classGeo && Math.abs(classGeo.w - geo.cardW) <= 1,
+    `${classGeo?.w}px vs catalogue ${geo.cardW}px`,
+  );
+  rec(
+    "its footer is a state panel like every other card, aligned to the start",
+    !!classGeo &&
+      classGeo.footerAlign === "start" &&
+      classGeo.panelRadius === cataloguePanel.radius &&
+      classGeo.panelPad === cataloguePanel.pad,
+    JSON.stringify({ mesCours: classGeo, catalogue: cataloguePanel }),
+  );
+  rec("with no empty region below it", !!classGeo && classGeo.slack <= 28, `${classGeo?.slack}px`);
+
+  const classText = await classCard.innerText();
+  rec(
+    "it states the next session as a fact rather than a sentence",
+    /Prochaine séance/i.test(classText) &&
+      (/\d{2}:\d{2}\s*[–-]\s*\d{2}:\d{2}/.test(classText) || /Aucune séance/i.test(classText)),
+    JSON.stringify(classText.split("\n").slice(-2)),
+  );
+  rec(
+    "and dates the enrolment instead of replaying the request",
+    /Inscrit\(e\) depuis/i.test(classText) && !/Demande envoyée/i.test(classText),
+    JSON.stringify(classText.split("\n").find((l) => /Inscrit|Demande/i.test(l)) ?? ""),
+  );
+  rec(
+    "no pricing on Mes cours either",
+    !/DZD|Tarif|4\s?500/i.test(classText),
+    JSON.stringify(classText.split("\n").find((l) => /DZD|Tarif/i.test(l)) ?? "(none)"),
+  );
+
   /* ================================================================ profile */
   console.log("\n--- the profile ---");
   await page.goto(`${APP}/dashboard/profile`, { waitUntil: "networkidle" });
@@ -530,7 +708,7 @@ try {
     [375, 800],
   ]) {
     await page.setViewportSize({ width: w, height: h });
-    for (const route of ["registration", "my-registrations", "profile"]) {
+    for (const route of ["registration", "my-classes", "my-registrations", "profile"]) {
       await page.goto(`${APP}/dashboard/${route}`, { waitUntil: "networkidle" });
       await page.waitForTimeout(900);
       const over = await page.evaluate(
