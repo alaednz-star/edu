@@ -26,6 +26,21 @@ export interface SessionItem {
 }
 
 /** All sessions of a given weekday (0 = Sunday), sorted by start time. */
+/**
+ * Total weekly hours across a group's slots -- what "2 h / sem." on a card means.
+ *
+ * Sums the slots rather than multiplying one of them: a group meeting Monday 14:00-16:00
+ * and Wednesday 10:00-11:30 is 3.5 hours a week, not 2 and not 4.
+ */
+export function weeklyHours(schedules: { startTime: string; endTime: string }[]): number {
+  const minutes = schedules.reduce((sum, sl) => {
+    const [sh = 0, sm = 0] = sl.startTime.split(":").map(Number);
+    const [eh = 0, em = 0] = sl.endTime.split(":").map(Number);
+    return sum + Math.max(0, eh * 60 + em - (sh * 60 + sm));
+  }, 0);
+  return Math.round((minutes / 60) * 10) / 10;
+}
+
 export function sessionsForDay(groups: GroupRow[], weekday: number): SessionItem[] {
   return groups
     .flatMap((group) =>

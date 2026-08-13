@@ -7,11 +7,11 @@ import {
   Clock3,
   DoorClosed,
   GraduationCap,
+  Info,
   Loader2,
   Search,
   Timer,
   Users,
-  Wallet,
   XCircle,
 } from "lucide-react";
 import { PageHeader } from "@/components/common/page-header";
@@ -59,6 +59,12 @@ import {
 import { RequireAuth } from "@/features/auth/require-auth";
 import { PersonAvatar } from "@/features/profile/person-avatar";
 import {
+  Fact,
+  GroupCard,
+  StatePanel,
+  type GroupCardView,
+} from "@/features/school/components/group-card";
+import {
   useCancelRegistration,
   useCreateRegistration,
   useSubjects,
@@ -66,11 +72,11 @@ import {
 import { subjectColor } from "@/features/school/session/subject-tint";
 import { useEligibleGroups, type EligibleGroup } from "@/features/school/eligible-groups";
 import { useStreamOptions } from "@/features/school/streams";
-import { weekdayLabel } from "@/features/school/schedule";
+import { weekdayLabel, weeklyHours } from "@/features/school/schedule";
 import { useAuth } from "@/hooks/use-auth";
 import { useI18n } from "@/hooks/use-i18n";
 import { useActionFeedback } from "@/hooks/use-action-feedback";
-import { formatDate, formatDecimal, formatDzd } from "@/lib/format";
+import { formatDate, formatDecimal } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/dashboard/registration")({
@@ -296,9 +302,9 @@ function RegistrationPage() {
       </div>
 
       {isLoading ? (
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid gap-6 lg:grid-cols-2">
           {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-72 rounded-2xl" />
+            <Skeleton key={i} className="h-[420px] rounded-2xl" />
           ))}
         </div>
       ) : items.length === 0 ? (
@@ -323,9 +329,9 @@ function RegistrationPage() {
           }
         />
       ) : (
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid gap-6 lg:grid-cols-2">
           {visible.map((item) => (
-            <GroupCard
+            <CatalogueCard
               key={item.group.id}
               item={item}
               streamLabel={streamNameOf(item.group.streamId)}
@@ -408,37 +414,16 @@ function FilterSelect({
 }
 
 /**
- * Capacity as a decision rather than a number.
+ * The catalogue's adapter onto the shared card.
  *
- * "20 places" tells a student nothing; "plus que 2 places" tells them to act. The amber
- * band also opens at 75% occupancy, because a group that is three-quarters full is the
- * one worth hurrying for even when the absolute count still looks comfortable.
+ * `EligibleGroup` -> `GroupCardView`. The card itself lives in
+ * `features/school/components/group-card.tsx` and is the same one "Mes inscriptions" and
+ * the confirmation page draw, so the two pages cannot drift apart again. Only the badge
+ * and the action band differ here, which is the one difference that is meant to exist.
+ *
+ * No pricing: money is not part of the product yet.
  */
-function capacityOf(seatsLeft: number, enrolled: number, capacity: number) {
-  const occupancy = capacity > 0 ? enrolled / capacity : 0;
-  if (seatsLeft <= 0) return { tone: "full" as const, key: "dash.registration.capacityFull" };
-  if (seatsLeft <= 3) return { tone: "low" as const, key: "dash.registration.capacityLow" };
-  if (occupancy >= 0.75) return { tone: "low" as const, key: "dash.registration.capacityLeft" };
-  return { tone: "open" as const, key: "dash.registration.capacityLeft" };
-}
-
-const CAPACITY_COLOR = {
-  open: "var(--color-success)",
-  low: "var(--color-accent)",
-  full: "var(--color-destructive)",
-} as const;
-
-/** Total weekly hours across every slot, which is what "2h / semaine" means. */
-function weeklyHours(schedules: { startTime: string; endTime: string }[]): number {
-  const minutes = schedules.reduce((sum, sl) => {
-    const [sh = 0, sm = 0] = sl.startTime.split(":").map(Number);
-    const [eh = 0, em = 0] = sl.endTime.split(":").map(Number);
-    return sum + Math.max(0, eh * 60 + em - (sh * 60 + sm));
-  }, 0);
-  return Math.round((minutes / 60) * 10) / 10;
-}
-
-function GroupCard({
+function CatalogueCard({
   item,
   streamLabel,
   locale,
@@ -455,150 +440,39 @@ function GroupCard({
   onOpenDetails: () => void;
   isEnrolling: boolean;
 }) {
-  const { t } = useI18n();
-  const { group, seatsLeft, seatsKnown, blockedBy } = item;
-  const accent = subjectColor(group.subjectColor, group.subjectKey);
-
-  const occupancy =
-    group.maxStudents > 0 ? Math.round((group.enrolled / group.maxStudents) * 100) : 0;
-  const room = group.schedules.find((s) => s.room)?.room ?? null;
-  const capacity = capacityOf(seatsLeft, group.enrolled, group.maxStudents);
-  const hours = weeklyHours(group.schedules);
-
   return (
-    <article className="group/card surface-card overflow-hidden p-0 transition-[transform,box-shadow,border-color] duration-150 ease-out hover:-translate-y-0.5 hover:border-border hover:shadow-[0_14px_32px_rgba(18,33,29,.12)]">
-      {/* SUBJECT BANNER. One gradient per card, built from the subject's own colour via
-          color-mix so it stays consistent with Ressources, Présences and Mes cours
-          rather than becoming a second palette. */}
-      <div
-        className="relative h-[92px] overflow-hidden"
-        style={{
-          background: `linear-gradient(120deg, ${accent} 0%, color-mix(in oklch, ${accent} 78%, white) 55%, color-mix(in oklch, ${accent} 62%, white) 100%)`,
-        }}
-      >
-        {/* Decorative, and large enough to read as texture rather than an icon. */}
-        <GraduationCap
-          aria-hidden
-          className="pointer-events-none absolute -bottom-6 size-[106px] text-white/20 start-3"
+    <GroupCard
+      view={viewOfEligible(item, streamLabel)}
+      locale={locale}
+      badge={<StateBadge blockedBy={item.blockedBy} />}
+      onOpenDetails={onOpenDetails}
+      actions={
+        <CardAction
+          blockedBy={item.blockedBy}
+          rejectionReason={item.rejectionReason}
+          isEnrolling={isEnrolling}
+          onEnroll={onEnroll}
+          onCancel={onCancel}
         />
-        <div className="absolute top-3 flex items-center gap-1.5 end-3">
-          <StateBadge blockedBy={blockedBy} />
-        </div>
-        {/* Bidi-isolated: "3 000 DZD" must not reorder inside an Arabic page. */}
-        <span
-          dir="ltr"
-          style={{ unicodeBidi: "isolate" }}
-          className="absolute bottom-2.5 inline-flex items-center gap-1 rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-foreground end-3"
-        >
-          <Wallet className="size-3" aria-hidden />
-          {formatDzd(group.priceDzd, locale)}
-        </span>
-      </div>
-
-      <div className="px-5 pb-5">
-        {/* The teacher sits ACROSS the boundary: the photo is the thing a student
-            recognises, so it gets the most visually privileged position on the card. */}
-        <div className="-mt-9 flex items-end gap-3">
-          <PersonAvatar
-            name={group.teacherName}
-            url={group.teacherAvatarUrl}
-            accent={accent}
-            ring
-            className="size-[74px] shrink-0 bg-card text-lg"
-          />
-          <div className="min-w-0 pb-1">
-            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              {t("dash.registration.teacher")}
-            </p>
-            <p className="truncate text-[14.5px] font-semibold">
-              {group.teacherName ?? t("dash.registration.noTeacher")}
-            </p>
-          </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={onOpenDetails}
-          className="focus-ring mt-3 block w-full rounded-lg text-start"
-        >
-          <h3 className="truncate text-lg font-semibold tracking-tight">{group.name}</h3>
-          <p className="truncate text-sm font-semibold" style={{ color: accent }}>
-            {group.subjectName ?? "—"}
-            {streamLabel ? <span className="text-muted-foreground"> · {streamLabel}</span> : null}
-          </p>
-        </button>
-
-        <dl className="mt-3 grid grid-cols-3 gap-2">
-          <Fact icon={DoorClosed} accent={accent} label={t("group.room")}>
-            {room ?? t("dash.section.noRoom")}
-          </Fact>
-          <Fact icon={CalendarClock} accent={accent} label={t("dash.registration.schedule")}>
-            {group.schedules.length === 0
-              ? "—"
-              : `${weekdayLabel(group.schedules[0]!.weekday, t).slice(0, 3)} ${group.schedules[0]!.startTime.slice(0, 5)}–${group.schedules[0]!.endTime.slice(0, 5)}`}
-            {group.schedules.length > 1 ? (
-              <span className="text-muted-foreground">
-                {" "}
-                {t("dash.registration.moreSlots", { count: group.schedules.length - 1 })}
-              </span>
-            ) : null}
-          </Fact>
-          <Fact icon={Timer} accent={accent} label={t("dash.registration.weekly")}>
-            {hours > 0
-              ? t("dash.registration.hoursPerWeek", { hours: formatDecimal(hours, locale) })
-              : "—"}
-          </Fact>
-        </dl>
-
-        {/*
-          Seats, only when they are actually knowable.
-
-          A student's `registrations` read is restricted to their own rows, so the
-          occupancy this card would draw is always 0/N -- measured for nobody. Showing
-          the group's SIZE instead is the honest version of the same fact, and it still
-          tells a parent whether this is a class of 8 or of 30.
-        */}
-        {seatsKnown ? (
-          <div className="mt-4 space-y-1.5">
-            <div className="flex items-baseline justify-between gap-2">
-              <span
-                className="text-sm font-semibold"
-                style={{ color: CAPACITY_COLOR[capacity.tone] }}
-              >
-                {t(capacity.key, { count: seatsLeft })}
-              </span>
-              <span className="text-xs tabular-nums text-muted-foreground">
-                {t("dash.registration.enrolledCount", {
-                  enrolled: String(group.enrolled),
-                  capacity: String(group.maxStudents),
-                })}
-              </span>
-            </div>
-            <Progress
-              value={Math.min(occupancy, 100)}
-              className="h-[7px]"
-              aria-label={t("dash.registration.placesLeft")}
-            />
-          </div>
-        ) : (
-          <p className="mt-4 flex items-center gap-1.5 text-sm text-muted-foreground">
-            <Users className="size-4 shrink-0" style={{ color: accent }} aria-hidden />
-            {t("dash.registration.groupSize", { count: group.maxStudents })}
-          </p>
-        )}
-
-        <footer className="mt-4">
-          <CardAction
-            blockedBy={blockedBy}
-            rejectionReason={item.rejectionReason}
-            isEnrolling={isEnrolling}
-            onEnroll={onEnroll}
-            onCancel={onCancel}
-          />
-        </footer>
-      </div>
-    </article>
+      }
+    />
   );
+}
+
+/** `EligibleGroup` -> the shared view model. Level and stream become one context line. */
+function viewOfEligible(item: EligibleGroup, streamLabel: string | null): GroupCardView {
+  const g = item.group;
+  return {
+    groupName: g.name,
+    subjectName: g.subjectName,
+    subjectKey: g.subjectKey,
+    subjectColor: g.subjectColor,
+    contextLabel: [g.levelName, streamLabel].filter(Boolean).join(" · ") || null,
+    teacherName: g.teacherName,
+    teacherAvatarUrl: g.teacherAvatarUrl,
+    schedules: g.schedules,
+    maxStudents: g.maxStudents,
+  };
 }
 
 /** The state badge on the banner. Reuses the shared vocabulary, not a private one. */
@@ -660,64 +534,63 @@ function CardAction({
 
   if (blockedBy === "pending") {
     return (
-      <div className="rounded-xl border border-border bg-muted/50 p-3">
-        <p className="flex items-center gap-1.5 text-sm font-semibold">
-          <Clock3 className="size-4 shrink-0 text-accent" aria-hidden />
-          {t("dash.registration.state.pending")}
-        </p>
-        <p className="mt-0.5 text-xs text-muted-foreground">{t("dash.registration.pendingHint")}</p>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="mt-2 h-11 w-full rounded-xl"
-          onClick={onCancel}
-        >
-          {t("dash.registration.cancelRequest")}
-        </Button>
-      </div>
+      <StatePanel
+        tone="pending"
+        icon={Clock3}
+        title={t("dash.registration.state.pending")}
+        hint={t("dash.registration.pendingHint")}
+        action={
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-11 w-full rounded-xl"
+            onClick={onCancel}
+          >
+            {t("dash.registration.cancelRequest")}
+          </Button>
+        }
+      />
     );
   }
 
   if (blockedBy === "approved") {
     return (
-      <div className="rounded-xl border border-success/25 bg-success/5 p-3">
-        <p className="flex items-center gap-1.5 text-sm font-semibold text-success">
-          <CheckCircle2 className="size-4 shrink-0" aria-hidden />
-          {t("dash.registration.state.approved")}
-        </p>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          {t("dash.registration.approvedHint")}
-        </p>
-        <Button asChild variant="outline" size="sm" className="mt-2 h-11 w-full rounded-xl">
-          <Link to="/dashboard/my-classes">{t("dash.registration.viewCourse")}</Link>
-        </Button>
-      </div>
+      <StatePanel
+        tone="success"
+        icon={CheckCircle2}
+        title={t("dash.registration.state.approved")}
+        hint={t("dash.registration.approvedHint")}
+        action={
+          <Button asChild variant="outline" size="sm" className="h-11 w-full rounded-xl">
+            <Link to="/dashboard/my-classes">{t("dash.registration.viewCourse")}</Link>
+          </Button>
+        }
+      />
     );
   }
 
   if (blockedBy === "rejected") {
     return (
-      <div className="rounded-xl border border-destructive/25 bg-destructive/5 p-3">
-        <p className="flex items-center gap-1.5 text-sm font-semibold text-destructive">
-          <XCircle className="size-4 shrink-0" aria-hidden />
-          {t("dash.registration.state.rejected")}
-        </p>
-        {/* Shown only when the administration actually wrote one. */}
-        {rejectionReason ? (
-          <p className="mt-0.5 text-xs text-muted-foreground">{rejectionReason}</p>
-        ) : null}
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="mt-2 h-11 w-full rounded-xl"
-          onClick={onEnroll}
-          disabled={isEnrolling}
-        >
-          {t("dash.registration.requestAgain")}
-        </Button>
-      </div>
+      <StatePanel
+        tone="rejected"
+        icon={XCircle}
+        title={t("dash.registration.state.rejected")}
+        // Shown only when the administration actually wrote one.
+        hint={rejectionReason ?? undefined}
+        action={
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-11 w-full rounded-xl"
+            onClick={onEnroll}
+            disabled={isEnrolling}
+          >
+            {t("dash.registration.requestAgain")}
+          </Button>
+        }
+      />
     );
   }
 
@@ -725,29 +598,25 @@ function CardAction({
     // The REAL rule: one active enrolment per subject and level, enforced by
     // `enforce_one_group_per_subject`. Not a schedule clash -- that rule does not exist.
     return (
-      <div className="rounded-xl border border-accent/25 bg-accent/5 p-3">
-        <p className="text-sm font-semibold text-accent">{t("dash.registration.stateTaken")}</p>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          {t("dash.registration.alreadyInSubject")}
-        </p>
-      </div>
+      <StatePanel
+        tone="blocked"
+        icon={Info}
+        title={t("dash.registration.stateTaken")}
+        hint={t("dash.registration.alreadyInSubject")}
+      />
     );
   }
 
   // Full.
-  return (
-    <div className="flex h-[46px] items-center justify-center rounded-xl bg-destructive/10 text-sm font-semibold text-destructive">
-      {t("dash.registration.capacityFull")}
-    </div>
-  );
+  return <StatePanel tone="rejected" icon={Users} title={t("dash.registration.capacityFull")} />;
 }
 
 /**
  * Everything about one group, on demand.
  *
  * The card answers "should I want this?"; the sheet answers "what exactly am I signing
- * up for?" -- every slot rather than the first, the period the group runs for, the
- * price, and the same action band so the decision can be made without going back.
+ * up for?" -- every slot rather than the first, the period the group runs for, the class
+ * size, and the same action band so the decision can be made without going back.
  */
 function GroupDetailsSheet({
   item,
@@ -865,11 +734,6 @@ function GroupDetailsSheet({
               </section>
 
               <dl className="grid grid-cols-2 gap-2">
-                <Fact icon={Wallet} accent={accent} label={t("dash.registration.price")}>
-                  <span dir="ltr" style={{ unicodeBidi: "isolate" }}>
-                    {formatDzd(group.priceDzd, locale)}
-                  </span>
-                </Fact>
                 <Fact icon={Timer} accent={accent} label={t("dash.registration.weekly")}>
                   {weeklyHours(group.schedules) > 0
                     ? t("dash.registration.hoursPerWeek", {
@@ -1023,12 +887,6 @@ function ConfirmEnrollDialog({
                       ))}
                 </dd>
               </div>
-              <div className="flex items-center justify-between gap-3">
-                <dt className="text-muted-foreground">{t("dash.registration.price")}</dt>
-                <dd className="font-semibold" dir="ltr" style={{ unicodeBidi: "isolate" }}>
-                  {formatDzd(group.priceDzd, locale)}
-                </dd>
-              </div>
             </dl>
 
             <DialogFooter>
@@ -1109,29 +967,5 @@ function WithdrawDialog({
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
-  );
-}
-
-function Fact({
-  icon: Icon,
-  accent,
-  label,
-  children,
-  className,
-}: {
-  icon: typeof Users;
-  accent: string;
-  label: string;
-  children: ReactNode;
-  className?: string | undefined;
-}) {
-  return (
-    <div className={cn("min-w-0 rounded-xl bg-muted/50 px-2.5 py-2", className)}>
-      <dt className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-        <Icon className="size-3 shrink-0" style={{ color: accent }} aria-hidden />
-        <span className="truncate">{label}</span>
-      </dt>
-      <dd className="mt-0.5 truncate text-xs font-semibold">{children}</dd>
-    </div>
   );
 }

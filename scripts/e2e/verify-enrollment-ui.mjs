@@ -7,7 +7,12 @@
  *
  *   - the teacher's photo is the dominant element on a catalogue card, and falls back to
  *     initials rather than a broken image or a silhouette
- *   - remaining seats read as urgency, with an accessible progress value
+ *   - the card geometry the brief specifies is MEASURED: a 120px banner, a 72-76px avatar
+ *     centred on its lower edge, three equal metadata columns, two columns per row at 24px
+ *   - both pages render the same card -- the catalogue and "Mes inscriptions" are checked
+ *     against the same geometry, because they used to be two implementations
+ *   - ZERO pricing UI, on a fixture group that deliberately HAS a price in the database
+ *   - capacity states the class size and never invents occupancy, a ratio or a bar
  *   - the blocked states explain the REAL reason (one group per subject and level), never
  *     an invented schedule clash
  *   - enrolling goes through a confirmation, and the request appears without a reload
@@ -178,6 +183,38 @@ try {
     JSON.stringify(fallbackText.trim()),
   );
 
+  // ---- Geometry the brief specifies, measured rather than trusted.
+  const geo = await openCard.evaluate((el) => {
+    const c = el.getBoundingClientRect();
+    const banner = el.firstElementChild.getBoundingClientRect();
+    const av = el.querySelector("[data-person-avatar]").getBoundingClientRect();
+    const title = el.querySelector("h3").getBoundingClientRect();
+    return {
+      bannerH: Math.round(banner.height),
+      avatarW: Math.round(av.width),
+      intoBanner: Math.round(banner.bottom - av.top),
+      belowBanner: Math.round(av.bottom - banner.bottom),
+      titleOverlapsAvatar: title.top < av.bottom && title.left < av.right && title.right > av.left,
+      factWidths: [...el.querySelectorAll("dl > div")].map((d) =>
+        Math.round(d.getBoundingClientRect().width),
+      ),
+      cardW: Math.round(c.width),
+    };
+  });
+  rec("the banner is ~120px on desktop", geo.bannerH === 120, `${geo.bannerH}px`);
+  rec("the avatar is 72-76px", geo.avatarW >= 72 && geo.avatarW <= 76, `${geo.avatarW}px`);
+  rec(
+    "and is centred on the banner boundary, not merely near it",
+    geo.intoBanner > 0 && Math.abs(geo.intoBanner - geo.belowBanner) <= 2,
+    `${geo.intoBanner}px into / ${geo.belowBanner}px below`,
+  );
+  rec("the title does not collide with the avatar", !geo.titleOverlapsAvatar);
+  rec(
+    "the three metadata blocks are equal columns",
+    geo.factWidths.length === 3 && new Set(geo.factWidths).size === 1,
+    JSON.stringify(geo.factWidths),
+  );
+
   // Staff DO get a real bar, and when they do it must carry an accessible value -- a
   // `role="progressbar"` with no `aria-valuenow` is what shipped before Phase 5.
   const staffCtx = await browser.newContext({ viewport: { width: 1440, height: 950 } });
@@ -227,8 +264,41 @@ try {
     JSON.stringify(filledText.split("\n").find((l) => /Complet|Groupe de/i.test(l)) ?? ""),
   );
 
-  const price = await openCard.innerText();
-  rec("the price is on the card", /4\s?500\s*DZD/.test(price.replace(/ | /g, " ")));
+  // The fixture group HAS a price in the database (4500). The card must still show none of
+  // it -- otherwise this assertion would pass on a card that simply had no price to show.
+  const cardText = (await openCard.innerText()).replace(/ | /g, " ");
+  rec(
+    "no price anywhere on the card, though the group has one in the database",
+    !/DZD|4\s?500|Tarif/i.test(cardText),
+    JSON.stringify(cardText.split("\n").find((l) => /DZD|4 ?500|Tarif/i.test(l)) ?? "(none)"),
+  );
+  rec(
+    "and no currency icon: the banner carries the status badge only",
+    (await openCard.locator(".lucide-wallet").count()) === 0,
+  );
+
+  const grid = await page.evaluate(() => {
+    const cards = [...document.querySelectorAll("main article")];
+    const top = Math.round(cards[0].getBoundingClientRect().top);
+    const row = cards.filter((c) => Math.round(c.getBoundingClientRect().top) === top);
+    const heights = row.map((c) => Math.round(c.getBoundingClientRect().height));
+    const a = row[0].getBoundingClientRect();
+    const b = row[1] ? row[1].getBoundingClientRect() : null;
+    return {
+      columns: row.length,
+      heights,
+      gap: b ? Math.round(Math.abs(b.left - a.right)) : null,
+      widthsEqual: !b || Math.abs(Math.round(b.width) - Math.round(a.width)) <= 1,
+    };
+  });
+  rec("two cards per row on desktop", grid.columns === 2, `${grid.columns}`);
+  rec("of equal width", grid.widthsEqual);
+  rec("with a 24px gap", grid.gap === 24, `${grid.gap}px`);
+  rec(
+    "and level bottoms -- no stray height differences",
+    new Set(grid.heights).size === 1,
+    JSON.stringify(grid.heights),
+  );
 
   /* ================================================================ details sheet */
   console.log("\n--- the details sheet ---");
@@ -243,6 +313,11 @@ try {
     `${(sheetText.match(/\d{2}:\d{2}/g) ?? []).length} times`,
   );
   rec("and the room", /B12/.test(sheetText));
+  rec(
+    "the details sheet has no pricing row",
+    !/DZD|4\s?500|Tarif/i.test(sheetText),
+    JSON.stringify(sheetText.split("\n").find((l) => /DZD|Tarif/i.test(l)) ?? "(none)"),
+  );
   await page.keyboard.press("Escape");
   await page.waitForTimeout(500);
 
@@ -260,7 +335,11 @@ try {
     /pas encore réservée|valide chaque demande/i.test(dialogText),
     JSON.stringify(dialogText.split("\n")[1] ?? ""),
   );
-  rec("and restates the price being committed to", /4\s?500|DZD/.test(dialogText));
+  rec(
+    "and carries no pricing either",
+    !/DZD|4\s?500|Tarif/i.test(dialogText),
+    JSON.stringify(dialogText.split("\n").find((l) => /DZD|Tarif/i.test(l)) ?? "(none)"),
+  );
 
   await dialog.getByRole("button", { name: /Envoyer la demande/i }).click();
   // Success navigates to the confirmation route.
@@ -321,6 +400,36 @@ try {
   rec(
     "each carries the teacher's avatar, like the catalogue",
     (await regCards.first().locator("[data-person-avatar]").count()) > 0,
+  );
+
+  // The two pages must be the same component, not two implementations that look alike.
+  const shape = await page.evaluate(() => {
+    const el = document.querySelector("main article");
+    if (!el) return null;
+    const banner = el.firstElementChild.getBoundingClientRect();
+    const av = el.querySelector("[data-person-avatar]");
+    return {
+      bannerH: Math.round(banner.height),
+      avatarW: av ? Math.round(av.getBoundingClientRect().width) : 0,
+      facts: el.querySelectorAll("dl > div").length,
+      hasCapacity: /Groupe de \d+ élèves/.test(el.textContent ?? ""),
+    };
+  });
+  rec(
+    "Mes inscriptions uses the identical card geometry as the catalogue",
+    !!shape && shape.bannerH === 120 && shape.avatarW >= 72 && shape.avatarW <= 76,
+    JSON.stringify(shape),
+  );
+  rec(
+    "with the same three metadata blocks and capacity line",
+    !!shape && shape.facts === 3 && shape.hasCapacity,
+    JSON.stringify(shape),
+  );
+  const myRegText = await page.locator("main").innerText();
+  rec(
+    "and no pricing on this page either",
+    !/DZD|Tarif/i.test(myRegText),
+    JSON.stringify(myRegText.split("\n").find((l) => /DZD|Tarif/i.test(l)) ?? "(none)"),
   );
 
   const pendingCard = regCards.filter({ hasText: /attente/i }).first();

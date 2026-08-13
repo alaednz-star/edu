@@ -1,6 +1,14 @@
 import { useMemo, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { CalendarDays, ClipboardList, Loader2, Search } from "lucide-react";
+import {
+  CalendarDays,
+  CheckCircle2,
+  ClipboardList,
+  Clock3,
+  Loader2,
+  Search,
+  XCircle,
+} from "lucide-react";
 import { PageHeader } from "@/components/common/page-header";
 import { EmptyState } from "@/components/common/empty-state";
 import { ErrorState } from "@/components/common/error-state";
@@ -17,6 +25,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { RequireAuth } from "@/features/auth/require-auth";
+import { StatePanel } from "@/features/school/components/group-card";
 import { RegistrationCard } from "@/features/school/components/registration-card";
 import { useMyRegistrationCards, type MyRegistration } from "@/features/school/my-registrations";
 import { useCancelRegistration } from "@/features/school/queries";
@@ -117,9 +126,9 @@ function MyRegistrationsPage() {
     return (
       <>
         {header}
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid gap-6 lg:grid-cols-2">
           {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-72 rounded-2xl" />
+            <Skeleton key={i} className="h-[420px] rounded-2xl" />
           ))}
         </div>
       </>
@@ -179,7 +188,7 @@ function MyRegistrationsPage() {
           className="border-none shadow-none"
         />
       ) : (
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid gap-6 lg:grid-cols-2">
           {visible.map((item) => (
             <RegistrationCard
               key={item.id}
@@ -246,39 +255,63 @@ function CardActions({
 }) {
   const { t } = useI18n();
 
+  // The same `StatePanel` the catalogue uses, so "en attente" reads identically on both
+  // surfaces. The CONTENT differs on purpose: from here an approved student wants their
+  // timetable, whereas from the catalogue they want the course itself.
   if (status === "approved") {
     return (
-      <Button asChild variant="outline" className="w-full rounded-xl">
-        <Link to="/dashboard/schedule">
-          <CalendarDays className="size-4" aria-hidden />
-          {t("myReg.openSchedule")}
-        </Link>
-      </Button>
+      <StatePanel
+        tone="success"
+        icon={CheckCircle2}
+        title={t("dash.registration.state.approved")}
+        hint={t("myReg.approvedHint")}
+        action={
+          <Button asChild variant="outline" size="sm" className="h-11 w-full rounded-xl">
+            <Link to="/dashboard/schedule">
+              <CalendarDays className="size-4" aria-hidden />
+              {t("myReg.openSchedule")}
+            </Link>
+          </Button>
+        }
+      />
     );
   }
 
   if (status === "rejected") {
     return (
-      <Button asChild variant="outline" className="w-full rounded-xl">
-        <Link to="/dashboard/registration">
-          <Search className="size-4" aria-hidden />
-          {t("myReg.registerAnother")}
-        </Link>
-      </Button>
+      <StatePanel
+        tone="rejected"
+        icon={XCircle}
+        title={t("dash.registration.state.rejected")}
+        action={
+          <Button asChild variant="outline" size="sm" className="h-11 w-full rounded-xl">
+            <Link to="/dashboard/registration">
+              <Search className="size-4" aria-hidden />
+              {t("myReg.registerAnother")}
+            </Link>
+          </Button>
+        }
+      />
     );
   }
 
   return (
-    <div className="space-y-2">
-      <p className="text-center text-xs text-muted-foreground">{t("myReg.pendingHint")}</p>
-      <Button
-        type="button"
-        variant="outline"
-        className="h-11 w-full rounded-xl text-muted-foreground hover:text-destructive"
-        onClick={onWithdraw}
-      >
-        {t("myReg.withdraw")}
-      </Button>
-    </div>
+    <StatePanel
+      tone="pending"
+      icon={Clock3}
+      title={t("dash.registration.state.pending")}
+      hint={t("myReg.pendingHint")}
+      action={
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-11 w-full rounded-xl text-muted-foreground hover:text-destructive"
+          onClick={onWithdraw}
+        >
+          {t("myReg.withdraw")}
+        </Button>
+      }
+    />
   );
 }

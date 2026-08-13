@@ -74,6 +74,8 @@ export const studentJourney: DictionaryModule = {
     "myReg.openSchedule": "Voir mon emploi du temps",
     "myReg.registerAnother": "S'inscrire à un autre groupe",
     "myReg.pendingHint": "En attente de validation par l'administration.",
+    "myReg.approvedHint":
+      "Votre place est confirmée. Retrouvez les séances dans votre emploi du temps.",
     "myReg.unavailableGroup": "Cours non disponible",
     "myReg.unavailableHint":
       "Ce cours ne correspond plus à votre année scolaire. Contactez le centre.",
@@ -166,6 +168,7 @@ export const studentJourney: DictionaryModule = {
     "myReg.openSchedule": "عرض جدولي",
     "myReg.registerAnother": "التسجيل في فوج آخر",
     "myReg.pendingHint": "في انتظار موافقة الإدارة.",
+    "myReg.approvedHint": "تم تأكيد مقعدك. تجد الحصص في جدول حصصك.",
     "myReg.unavailableGroup": "درس غير متاح",
     "myReg.unavailableHint": "لم يعد هذا الدرس مطابقًا لسنتك الدراسية. اتصل بالمركز.",
 
@@ -257,6 +260,7 @@ export const studentJourney: DictionaryModule = {
     "myReg.openSchedule": "Open my schedule",
     "myReg.registerAnother": "Register for another group",
     "myReg.pendingHint": "Awaiting approval from the administration.",
+    "myReg.approvedHint": "Your seat is confirmed. Sessions are in your timetable.",
     "myReg.unavailableGroup": "Class unavailable",
     "myReg.unavailableHint": "This class no longer matches your school year. Contact the centre.",
 

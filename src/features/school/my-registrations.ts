@@ -23,6 +23,8 @@ export interface MyRegistration {
   levelName: string | null;
   streamName: string | null;
   priceDzd: number;
+  /** Class size. Already in the existing select; the shared card shows it as capacity. */
+  maxStudents: number;
   room: string | null;
   schedules: ScheduleSlot[];
   /** True when the linked group is no longer visible to this student. */
@@ -88,6 +90,7 @@ export function useMyRegistrationCards(studentId: string | undefined) {
         levelName: group?.levels?.name ?? null,
         streamName: streamNameOf(group?.stream_id),
         priceDzd: group?.price_dzd ?? 0,
+        maxStudents: group?.max_students ?? 0,
         room: schedules.find((s) => s.room)?.room ?? null,
         schedules,
       };
