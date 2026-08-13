@@ -147,6 +147,8 @@ export interface MyProfile {
   email: string | null;
   phone: string | null;
   avatarUrl: string | null;
+  /** When the account was created -- the "member since" line on the profile. */
+  createdAt: string;
 }
 
 export function useMyProfile(userId: string | undefined) {
@@ -156,7 +158,7 @@ export function useMyProfile(userId: string | undefined) {
     queryFn: async (): Promise<MyProfile | null> => {
       const { data, error } = await supabase
         .from("profiles")
-        .select("full_name, email, phone, avatar_url")
+        .select("full_name, email, phone, avatar_url, created_at")
         .eq("id", userId as string)
         .maybeSingle();
       if (error) throw error;
@@ -166,6 +168,7 @@ export function useMyProfile(userId: string | undefined) {
         email: data.email,
         phone: data.phone,
         avatarUrl: data.avatar_url,
+        createdAt: data.created_at,
       };
     },
   });

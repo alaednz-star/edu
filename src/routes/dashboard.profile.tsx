@@ -1,12 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { KeyRound, Loader2 } from "lucide-react";
+import { CalendarDays, KeyRound, Loader2, Mail, Phone } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/common/page-header";
 import { SectionCard } from "@/components/common/section-card";
 import { ErrorState } from "@/components/common/error-state";
 import { AvatarPicker } from "@/features/profile/avatar-picker";
 import { avatarPathFromUrl, removeAvatar, uploadAvatar } from "@/features/profile/avatar-upload";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,7 +19,7 @@ import { authService } from "@/services/auth";
 import { useAuth } from "@/hooks/use-auth";
 import { useI18n } from "@/hooks/use-i18n";
 import { useActionFeedback } from "@/hooks/use-action-feedback";
-import { initialsOf } from "@/lib/format";
+import { formatDate, initialsOf } from "@/lib/format";
 
 export const Route = createFileRoute("/dashboard/profile")({
   head: () => ({
@@ -35,7 +36,7 @@ export const Route = createFileRoute("/dashboard/profile")({
 });
 
 function ProfilePage() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { user, refresh } = useAuth();
   const { notifySuccess, notifyError } = useActionFeedback();
   const { data, isLoading, error, refetch, isFetching } = useMyProfile(user?.id);
@@ -188,17 +189,68 @@ function ProfilePage() {
         }
       />
 
-      <SectionCard title={t("profile.identityTitle")} description={t("profile.identityDesc")}>
-        <div className="flex flex-col gap-6 sm:flex-row sm:items-start">
+      {/*
+        WHO YOU ARE, before HOW TO EDIT IT.
+        The page used to open with two text inputs, so the answer to "is this the right
+        account?" was buried in a form field. The photo, name, role and email now come
+        first and read as an identity card; editing happens below it.
+      */}
+      <section className="surface-card overflow-hidden p-0">
+        <div
+          className="h-20"
+          style={{
+            background:
+              "linear-gradient(120deg, var(--color-primary) 0%, color-mix(in oklch, var(--color-primary) 68%, white) 100%)",
+          }}
+        />
+        <div className="flex flex-col gap-4 px-5 pb-5 sm:flex-row sm:gap-6">
           <AvatarPicker
             url={form.avatarUrl || null}
             fallback={initialsOf(form.fullName || user?.fullName || "?")}
             busy={uploading}
             onPick={(file) => void pickAvatar(file)}
             onClear={() => void clearAvatar()}
-            className="shrink-0"
+            className="-mt-12 shrink-0"
           />
 
+          <div className="min-w-0 flex-1 space-y-2 sm:pt-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="min-w-0 truncate text-xl font-semibold tracking-tight">
+                {form.fullName || user?.fullName || "—"}
+              </h2>
+              {user && (
+                <Badge variant="secondary" className="rounded-lg">
+                  {t(`role.${user.role}`)}
+                </Badge>
+              )}
+            </div>
+
+            <dl className="grid gap-1.5 text-sm sm:grid-cols-2">
+              <HeroFact icon={Mail} label={t("profile.email")}>
+                {/* An address is direction-neutral; isolate it so RTL does not reorder it. */}
+                <span dir="ltr" style={{ unicodeBidi: "isolate" }} className="truncate">
+                  {user?.email || "—"}
+                </span>
+              </HeroFact>
+              <HeroFact icon={Phone} label={t("profile.phone")}>
+                <span dir="ltr" style={{ unicodeBidi: "isolate" }}>
+                  {form.phone || t("profile.noPhone")}
+                </span>
+              </HeroFact>
+              {data && (
+                <HeroFact icon={CalendarDays} label={t("profile.memberSince")} showLabel>
+                  <span dir="ltr" style={{ unicodeBidi: "isolate" }}>
+                    {formatDate(data.createdAt, locale)}
+                  </span>
+                </HeroFact>
+              )}
+            </dl>
+          </div>
+        </div>
+      </section>
+
+      <SectionCard title={t("profile.identityTitle")} description={t("profile.identityDesc")}>
+        <div className="flex flex-col gap-6">
           <div className="grid flex-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="p-name">{t("profile.fullName")}</Label>
@@ -221,19 +273,6 @@ function ProfilePage() {
             </div>
           </div>
         </div>
-      </SectionCard>
-
-      <SectionCard title={t("profile.accountTitle")} description={t("profile.accountDesc")}>
-        <dl className="grid gap-4 sm:grid-cols-2">
-          <div className="rounded-xl bg-muted/60 px-4 py-3">
-            <dt className="text-xs text-muted-foreground">{t("profile.email")}</dt>
-            <dd className="mt-0.5 truncate text-sm font-medium">{user?.email || "—"}</dd>
-          </div>
-          <div className="rounded-xl bg-muted/60 px-4 py-3">
-            <dt className="text-xs text-muted-foreground">{t("profile.role")}</dt>
-            <dd className="mt-0.5 text-sm font-medium">{user ? t(`role.${user.role}`) : "—"}</dd>
-          </div>
-        </dl>
       </SectionCard>
 
       <SectionCard title={t("profile.securityTitle")} description={t("profile.securityDesc")}>
@@ -260,5 +299,30 @@ function ProfilePage() {
         </div>
       </SectionCard>
     </>
+  );
+}
+
+/** One labelled fact in the identity hero. */
+function HeroFact({
+  icon: Icon,
+  label,
+  showLabel = false,
+  children,
+}: {
+  icon: typeof Mail;
+  label: string;
+  /**
+   * Most rows carry their own meaning -- an address is obviously an address. A bare date
+   * does not, so that one shows its label.
+   */
+  showLabel?: boolean | undefined;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+      <dt className={showLabel ? "shrink-0 text-muted-foreground" : "sr-only"}>{label}</dt>
+      <dd className="min-w-0 truncate text-muted-foreground">{children}</dd>
+    </div>
   );
 }
