@@ -11,18 +11,42 @@ export function initialsOf(name: string): string {
   return letters || "?";
 }
 
+/**
+ * Bidi control characters ICU embeds in Arabic patterns.
+ *
+ * `Intl.DateTimeFormat("ar-DZ")` returns "13‏/8‏/2026": a RIGHT-TO-LEFT MARK
+ * between each component. Those marks reorder the parts wherever the string is placed,
+ * even inside a `dir="ltr"` isolate -- "13/8/2026" renders as "/132026/8", which is not a
+ * date. Stripping them is the same intent as forcing Latin digits below: a numeric date
+ * should read the same way in every locale.
+ */
+const BIDI_MARKS = /[‎‏؜]/g;
+
 /** Locale-aware date, e.g. 03/08/2026. Arabic uses Latin digits for scannability. */
 export function formatDate(iso: string, locale: string): string {
   const tag = locale === "ar" ? "ar-DZ-u-nu-latn" : locale === "en" ? "en-GB" : "fr-FR";
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat(tag, { dateStyle: "short" }).format(date);
+  return new Intl.DateTimeFormat(tag, { dateStyle: "short" }).format(date).replace(BIDI_MARKS, "");
+}
+
+/**
+ * A decimal quantity, e.g. "3,5" in French and "3.5" in English.
+ *
+ * `String(3.5)` is always a full stop, which is wrong in French and Arabic. Used for
+ * weekly hours, where a card would otherwise read "3.5 h / sem.".
+ */
+export function formatDecimal(value: number, locale: string): string {
+  const tag = locale === "ar" ? "ar-DZ-u-nu-latn" : locale === "en" ? "en-GB" : "fr-FR";
+  return new Intl.NumberFormat(tag, { maximumFractionDigits: 1 })
+    .format(value)
+    .replace(BIDI_MARKS, "");
 }
 
 /** Amount in Algerian dinar, e.g. "3 000 DZD". */
 export function formatDzd(amount: number, locale: string): string {
   const tag = locale === "ar" ? "ar-DZ-u-nu-latn" : locale === "en" ? "en-GB" : "fr-FR";
-  return `${new Intl.NumberFormat(tag).format(amount)} DZD`;
+  return `${new Intl.NumberFormat(tag).format(amount).replace(BIDI_MARKS, "")} DZD`;
 }
 
 /**
