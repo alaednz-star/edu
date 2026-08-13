@@ -11,6 +11,9 @@
     "lint": "eslint .",
     "test:session": "node --test \"src/features/school/session/*.test.ts\"",
     "test:unit": "node --test \"src/features/school/session/*.test.ts\" \"src/features/school/resources/*.test.ts\" \"src/lib/*.test.ts\"",
+    "seed:demo": "node scripts/seed-demo-data.mjs",
+    "seed:demo:fresh": "node scripts/seed-demo-data.mjs --fresh",
+    "verify:demo": "node scripts/verify-demo-data.mjs",
     "test:e2e:session": "node scripts/e2e/verify-session-aggregates.mjs && node scripts/e2e/verify-session-spine.mjs && node scripts/e2e/verify-session-calendar.mjs && node scripts/e2e/verify-session-calendar-rtl.mjs",
     "format": "prettier --write ."
   },
