@@ -444,8 +444,14 @@ function CatalogueCard({
     <GroupCard
       view={viewOfEligible(item, streamLabel)}
       locale={locale}
-      badge={<StateBadge blockedBy={item.blockedBy} />}
-      onOpenDetails={onOpenDetails}
+      /*
+        The banner badge appears ONLY for a group with nothing decided yet.
+
+        In every other state the panel at the bottom of the card already says it, in a full
+        sentence, with the action attached -- so a chip repeating "En attente" at the top was
+        the same fact twice and two things competing to be read first.
+      */
+      badge={item.blockedBy === null ? <StateBadge /> : undefined}
       actions={
         <CardAction
           blockedBy={item.blockedBy}
@@ -453,6 +459,7 @@ function CatalogueCard({
           isEnrolling={isEnrolling}
           onEnroll={onEnroll}
           onCancel={onCancel}
+          onOpenDetails={onOpenDetails}
         />
       }
     />
@@ -475,27 +482,19 @@ function viewOfEligible(item: EligibleGroup, streamLabel: string | null): GroupC
   };
 }
 
-/** The state badge on the banner. Reuses the shared vocabulary, not a private one. */
-function StateBadge({ blockedBy }: { blockedBy: EligibleGroup["blockedBy"] }) {
+/**
+ * "Ouvert", on the banner of a group that can be applied to.
+ *
+ * It used to render a chip for every state. It no longer needs to: the action panel states
+ * pending, approved, rejected, taken and full itself, so the only case left is the one the
+ * panel does NOT name -- a group that is simply open. The `badge.*` and `stateTaken` keys
+ * stay in the dictionaries; the details sheet and the tab filters still use that vocabulary.
+ */
+function StateBadge() {
   const { t } = useI18n();
-  if (blockedBy === null) {
-    return (
-      <span className="rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-success">
-        {t("dash.registration.stateOpen")}
-      </span>
-    );
-  }
-  // Deliberately not `state.*`: those are full sentences for the action band. A badge
-  // this size needs one or two words.
-  const key =
-    blockedBy === "full"
-      ? "dash.registration.full"
-      : blockedBy === "takenSubject"
-        ? "dash.registration.stateTaken"
-        : `dash.registration.badge.${blockedBy}`;
   return (
-    <span className="rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-foreground">
-      {t(key)}
+    <span className="rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-success">
+      {t("dash.registration.stateOpen")}
     </span>
   );
 }
@@ -514,21 +513,43 @@ function CardAction({
   isEnrolling,
   onEnroll,
   onCancel,
+  onOpenDetails,
 }: {
   blockedBy: EligibleGroup["blockedBy"];
   rejectionReason: string | null;
   isEnrolling: boolean;
   onEnroll: () => void;
   onCancel: () => void;
+  /** Omitted inside the details sheet: you are already there, so there is nothing to open. */
+  onOpenDetails?: (() => void) | undefined;
 }) {
   const { t } = useI18n();
 
+  // Two visible affordances instead of one visible button plus a clickable title nobody
+  // would guess was clickable: read more, or apply.
   if (blockedBy === null) {
     return (
-      <Button className="h-[46px] w-full rounded-xl" onClick={onEnroll} disabled={isEnrolling}>
-        {isEnrolling && <Loader2 className="size-4 animate-spin" aria-hidden />}
-        {t("dash.registration.requestEnroll")}
-      </Button>
+      <div className="flex gap-2">
+        {onOpenDetails ? (
+          <Button
+            type="button"
+            variant="outline"
+            className="h-11 flex-1 rounded-xl"
+            onClick={onOpenDetails}
+          >
+            {t("dash.registration.details")}
+          </Button>
+        ) : null}
+        <Button
+          type="button"
+          className="h-11 flex-1 rounded-xl"
+          onClick={onEnroll}
+          disabled={isEnrolling}
+        >
+          {isEnrolling && <Loader2 className="size-4 animate-spin" aria-hidden />}
+          {t("dash.registration.enrol")}
+        </Button>
+      </div>
     );
   }
 
@@ -607,8 +628,16 @@ function CardAction({
     );
   }
 
-  // Full.
-  return <StatePanel tone="rejected" icon={Users} title={t("dash.registration.capacityFull")} />;
+  // Full. Grey, not red: a class filling up is not an error, and there is no waitlist
+  // table in this schema, so there is deliberately nothing to click.
+  return (
+    <StatePanel
+      tone="neutral"
+      icon={Users}
+      title={t("dash.registration.capacityFull")}
+      hint={t("dash.registration.fullHint")}
+    />
+  );
 }
 
 /**

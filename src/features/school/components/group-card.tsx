@@ -60,7 +60,6 @@ export function GroupCard({
   badge,
   meta,
   actions,
-  onOpenDetails,
 }: {
   view: GroupCardView;
   locale: string;
@@ -70,8 +69,6 @@ export function GroupCard({
   meta?: ReactNode | undefined;
   /** The state/action area. Anchored to the bottom so cards in a row align. */
   actions?: ReactNode | undefined;
-  /** When given, the title becomes a button that opens the details sheet. */
-  onOpenDetails?: (() => void) | undefined;
 }) {
   const { t } = useI18n();
   const accent = subjectColor(view.subjectColor, view.subjectKey);
@@ -80,15 +77,23 @@ export function GroupCard({
   const hours = weeklyHours(view.schedules);
   const first = view.schedules[0];
 
+  /*
+    `line-clamp-2`, not `truncate`.
+
+    A level like "3ème année secondaire · Sciences expérimentales" is information, and
+    clipping it to "3ème année seco..." on the first line loses the stream entirely. Two
+    lines is a controlled wrap with a hard ceiling, so a long name cannot push the card's
+    height around either.
+  */
   const identity = (
     <>
-      <h3 className="truncate text-[17px] font-semibold leading-snug tracking-tight">
+      <h3 className="line-clamp-2 text-[17px] font-semibold leading-snug tracking-tight">
         {unavailable ? t("myReg.unavailableGroup") : view.groupName}
       </h3>
       {unavailable ? (
-        <p className="truncate text-sm text-muted-foreground">{t("myReg.unavailableHint")}</p>
+        <p className="text-sm text-muted-foreground">{t("myReg.unavailableHint")}</p>
       ) : (
-        <p className="truncate text-sm font-semibold" style={{ color: accent }}>
+        <p className="mt-0.5 line-clamp-2 text-sm font-semibold" style={{ color: accent }}>
           {view.subjectName ?? "—"}
           {view.contextLabel ? (
             <span className="font-normal text-muted-foreground"> · {view.contextLabel}</span>
@@ -107,12 +112,16 @@ export function GroupCard({
       )}
     >
       {/*
-        BANNER. A visual header, not an empty block: 120px on desktop, one gradient built
-        from the subject's own colour through color-mix so it stays consistent with
+        BANNER. Down from 120px to 88px.
+
+        At 120px it was the loudest thing on the card and the teacher and group -- the two
+        things a student actually chooses between -- read as an afterthought below it. 88px
+        is still a dominant colour field but it no longer wins the page. The gradient is
+        built from the subject's own colour through color-mix, so it stays consistent with
         Ressources and Mes cours instead of becoming a second palette.
       */}
       <div
-        className="relative h-[104px] shrink-0 overflow-hidden sm:h-[120px]"
+        className="relative h-20 shrink-0 overflow-hidden sm:h-[88px]"
         style={{
           background: unavailable
             ? "linear-gradient(120deg, var(--color-muted) 0%, var(--color-muted) 100%)"
@@ -124,7 +133,7 @@ export function GroupCard({
         <GraduationCap
           aria-hidden
           className={cn(
-            "pointer-events-none absolute -bottom-7 size-[124px] start-3",
+            "pointer-events-none absolute -bottom-5 size-24 start-3",
             unavailable ? "text-foreground/10" : "text-white/20",
           )}
         />
@@ -158,27 +167,17 @@ export function GroupCard({
           </div>
         </div>
 
-        <div className="mt-2.5 min-w-0">
-          {onOpenDetails ? (
-            <button
-              type="button"
-              onClick={onOpenDetails}
-              // `min-h-11` = the 44px tap floor. Tightening the title's type dropped this
-              // block's natural height to 43px at 375px wide, which the measured touch-target
-              // check caught. It is a real control, so it gets a real target.
-              className="focus-ring block min-h-11 w-full min-w-0 rounded-lg text-start"
-            >
-              {identity}
-            </button>
-          ) : (
-            identity
-          )}
-        </div>
+        {/* Plain text. Opening the details used to be a click on the title, which was an
+            invisible affordance; it is an explicit "Détails" button in the action area now,
+            so the title does not also need to be a control. */}
+        <div className="mt-2.5 min-w-0">{identity}</div>
 
         {!unavailable && (
           <>
             {/* Three equal metadata columns: where, when, how much time. */}
-            <dl className="mt-3 grid grid-cols-3 gap-2">
+            {/* Two columns then three: at 375px a fixed three-up squeezes the labels to the
+                point of clipping, so the third field wraps to its own row instead. */}
+            <dl className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
               <Fact icon={DoorClosed} accent={accent} label={t("group.room")}>
                 {room ?? "—"}
               </Fact>
@@ -271,11 +270,18 @@ export function StatePanel({
   hint?: string | undefined;
   action?: ReactNode | undefined;
 }) {
+  /*
+    Amber means "waiting on someone", green "settled", red "refused", teal "informational",
+    grey "unavailable". Pending was grey and read as inert; it is the one state where the
+    student is waiting on a decision, so it gets the amber accent. `blocked` moves to teal
+    because "you already hold this subject" is a fact to absorb, not a warning, and `full`
+    moves to grey because a class being full is not an error.
+  */
   const TONES = {
     success: "border-success/25 bg-success/5 text-success",
-    pending: "border-border bg-muted/60 text-foreground",
+    pending: "border-accent/30 bg-accent/8 text-accent",
     rejected: "border-destructive/25 bg-destructive/5 text-destructive",
-    blocked: "border-accent/25 bg-accent/5 text-accent",
+    blocked: "border-primary/25 bg-primary/5 text-primary",
     neutral: "border-border bg-muted/60 text-muted-foreground",
   } as const;
   const [border, bg, text] = TONES[tone].split(" ");

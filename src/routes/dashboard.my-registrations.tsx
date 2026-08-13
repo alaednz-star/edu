@@ -193,7 +193,13 @@ function MyRegistrationsPage() {
             <RegistrationCard
               key={item.id}
               item={item}
-              actions={<CardActions status={item.status} onWithdraw={() => setWithdrawing(item)} />}
+              actions={
+                <CardActions
+                  status={item.status}
+                  rejectionReason={item.rejectionReason}
+                  onWithdraw={() => setWithdrawing(item)}
+                />
+              }
             />
           ))}
         </div>
@@ -248,9 +254,11 @@ function MyRegistrationsPage() {
  */
 function CardActions({
   status,
+  rejectionReason,
   onWithdraw,
 }: {
   status: RegistrationStatus;
+  rejectionReason: string | null;
   onWithdraw: () => void;
 }) {
   const { t } = useI18n();
@@ -283,6 +291,8 @@ function CardActions({
         tone="rejected"
         icon={XCircle}
         title={t("dash.registration.state.rejected")}
+        // The administration's own words, where the refusal is explained.
+        hint={rejectionReason ?? undefined}
         action={
           <Button asChild variant="outline" size="sm" className="h-11 w-full rounded-xl">
             <Link to="/dashboard/registration">

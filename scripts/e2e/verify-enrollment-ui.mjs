@@ -7,10 +7,14 @@
  *
  *   - the teacher's photo is the dominant element on a catalogue card, and falls back to
  *     initials rather than a broken image or a silhouette
- *   - the card geometry the brief specifies is MEASURED: a 120px banner, a 72-76px avatar
- *     centred on its lower edge, three equal metadata columns, two columns per row at 24px
+ *   - the card geometry the brief specifies is MEASURED: an 88px banner that the content
+ *     below it outweighs, a 72-76px avatar centred on its lower edge, three equal metadata
+ *     columns, two columns per row at 24px, and a subject/level line that wraps rather than
+ *     clipping to an ellipsis
  *   - both pages render the same card -- the catalogue and "Mes inscriptions" are checked
  *     against the same geometry, because they used to be two implementations
+ *   - nothing is said twice: no status chip in a banner whose panel already states it, and
+ *     no schedule pills repeating the HORAIRE column
  *   - ZERO pricing UI, on a fixture group that deliberately HAS a price in the database
  *   - capacity states the class size and never invents occupancy, a ratio or a bar
  *   - the blocked states explain the REAL reason (one group per subject and level), never
@@ -198,10 +202,28 @@ try {
       factWidths: [...el.querySelectorAll("dl > div")].map((d) =>
         Math.round(d.getBoundingClientRect().width),
       ),
+      contentH: Math.round(el.lastElementChild.getBoundingClientRect().height),
+      // The subject/level line must WRAP rather than clip -- an ellipsis there loses the
+      // stream entirely.
+      subjectClamped: (() => {
+        const line = el.querySelector("h3")?.nextElementSibling;
+        if (!line) return null;
+        return (
+          getComputedStyle(line).textOverflow === "ellipsis" &&
+          getComputedStyle(line).whiteSpace === "nowrap"
+        );
+      })(),
       cardW: Math.round(c.width),
     };
   });
-  rec("the banner is ~120px on desktop", geo.bannerH === 120, `${geo.bannerH}px`);
+  // 88px, down from 120. The point of the reduction is that the banner must no longer be
+  // the tallest thing on the card, so that is what is asserted rather than just the number.
+  rec("the banner is 88px on desktop", geo.bannerH === 88, `${geo.bannerH}px`);
+  rec(
+    "and no longer dominates: the content below it is taller",
+    geo.contentH > geo.bannerH * 2,
+    `banner ${geo.bannerH}px vs content ${geo.contentH}px`,
+  );
   rec("the avatar is 72-76px", geo.avatarW >= 72 && geo.avatarW <= 76, `${geo.avatarW}px`);
   rec(
     "and is centred on the banner boundary, not merely near it",
@@ -209,6 +231,11 @@ try {
     `${geo.intoBanner}px into / ${geo.belowBanner}px below`,
   );
   rec("the title does not collide with the avatar", !geo.titleOverlapsAvatar);
+  rec(
+    "the subject/level line wraps instead of being truncated with an ellipsis",
+    geo.subjectClamped === false,
+    `truncated=${geo.subjectClamped}`,
+  );
   rec(
     "the three metadata blocks are equal columns",
     geo.factWidths.length === 3 && new Set(geo.factWidths).size === 1,
@@ -302,10 +329,10 @@ try {
 
   /* ================================================================ details sheet */
   console.log("\n--- the details sheet ---");
-  await openCard.getByRole("heading", { name: open.name }).click();
+  await openCard.getByRole("button", { name: /^Détails$/i }).click();
   await page.waitForTimeout(700);
   const sheet = page.locator('[role="dialog"]').first();
-  rec("clicking the card title opens the details", await sheet.isVisible());
+  rec("the explicit Détails button opens the sheet", await sheet.isVisible());
   const sheetText = await sheet.innerText();
   rec(
     "it lists EVERY slot, not only the first",
@@ -324,7 +351,7 @@ try {
   /* ================================================================ enrol */
   console.log("\n--- enrolling goes through a confirmation ---");
   await cardFor(page, scarce.name)
-    .getByRole("button", { name: /Demander/i })
+    .getByRole("button", { name: /S'inscrire/i })
     .click();
   await page.waitForTimeout(600);
   const dialog = page.locator('[role="dialog"]').first();
@@ -413,11 +440,14 @@ try {
       avatarW: av ? Math.round(av.getBoundingClientRect().width) : 0,
       facts: el.querySelectorAll("dl > div").length,
       hasCapacity: /Groupe de \d+ élèves/.test(el.textContent ?? ""),
+      // Redundancy the brief called out: the bottom panel already states the status, so
+      // there must be no status chip in the banner and no schedule pills repeating HORAIRE.
+      bannerChips: el.firstElementChild.querySelectorAll("span").length,
     };
   });
   rec(
     "Mes inscriptions uses the identical card geometry as the catalogue",
-    !!shape && shape.bannerH === 120 && shape.avatarW >= 72 && shape.avatarW <= 76,
+    !!shape && shape.bannerH === 88 && shape.avatarW >= 72 && shape.avatarW <= 76,
     JSON.stringify(shape),
   );
   rec(
@@ -426,6 +456,11 @@ try {
     JSON.stringify(shape),
   );
   const myRegText = await page.locator("main").innerText();
+  rec(
+    "and no status chip in the banner -- the state panel already says it",
+    !!shape && shape.bannerChips === 0,
+    `${shape?.bannerChips} chips`,
+  );
   rec(
     "and no pricing on this page either",
     !/DZD|Tarif/i.test(myRegText),
@@ -532,6 +567,19 @@ try {
   const fmt = (list) =>
     list.map((s) => `${s.label || "(icon)"} ${Math.round(s.w)}x${Math.round(s.h)}`).join(", ");
   rec(`every catalogue control is at least ${TARGET}px`, mine.length === 0, fmt(mine));
+  const ctas = await page.evaluate(() => {
+    const card = document.querySelector("main article");
+    return [...(card?.querySelectorAll("footer button") ?? [])].map((b) => ({
+      label: (b.textContent ?? "").trim(),
+      h: Math.round(b.getBoundingClientRect().height),
+      w: Math.round(b.getBoundingClientRect().width),
+    }));
+  });
+  rec(
+    "both card CTAs are tappable at 375px",
+    ctas.length > 0 && ctas.every((c) => c.h >= 44 && c.w >= 88),
+    JSON.stringify(ctas),
+  );
   if (shell.length > 0) {
     console.log(`NOTE  pre-existing dashboard chrome below ${TARGET}px: ${fmt(shell)}`);
   }

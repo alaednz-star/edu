@@ -13,9 +13,7 @@
  */
 
 import type { ReactNode } from "react";
-import { StatusBadge } from "@/components/common/status-badge";
 import { GroupCard, type GroupCardView } from "@/features/school/components/group-card";
-import { weekdayLabel } from "@/features/school/schedule";
 import type { MyRegistration } from "@/features/school/my-registrations";
 import { useI18n } from "@/hooks/use-i18n";
 import { formatDate } from "@/lib/format";
@@ -49,42 +47,22 @@ export function RegistrationCard({
     <GroupCard
       view={viewOfRegistration(item)}
       locale={locale}
-      badge={<StatusBadge status={item.status} />}
+      /*
+        NO banner badge here, and no schedule pills.
+
+        The status panel at the bottom already states pending / approved / rejected in a full
+        sentence with its action attached, and the page's tab filter groups by status on top of
+        that -- a chip in the banner was the third copy of the same fact. The pills were the
+        second copy of the HORAIRE column. What is left is the one thing neither of those says:
+        when the request was made and when it was answered.
+      */
       meta={
-        <div className="space-y-2">
-          {/* Every slot, once the card has established which day is next. */}
-          {item.schedules.length > 1 && (
-            <div className="flex flex-wrap gap-1.5">
-              {item.schedules.map((s) => (
-                <span
-                  key={s.id}
-                  className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground"
-                >
-                  {weekdayLabel(s.weekday, t).slice(0, 3)}{" "}
-                  {/* A time range is direction-neutral; isolate it so RTL keeps the order. */}
-                  <span dir="ltr" style={{ unicodeBidi: "isolate" }} className="tabular-nums">
-                    {s.startTime.slice(0, 5)}–{s.endTime.slice(0, 5)}
-                  </span>
-                </span>
-              ))}
-            </div>
-          )}
-
-          {/* Asked for, then answered. */}
-          <p className="text-[11px] text-muted-foreground">
-            {t("myReg.submittedOn", { date: formatDate(item.createdAt, locale) })}
-            {item.decidedAt
-              ? ` · ${t("myReg.decidedOn", { date: formatDate(item.decidedAt, locale) })}`
-              : ""}
-          </p>
-
-          {item.rejectionReason && (
-            <p className="rounded-xl border border-destructive/25 bg-destructive/5 px-3 py-2 text-xs text-muted-foreground">
-              <span className="font-semibold text-destructive">{t("myReg.reasonLabel")} </span>
-              {item.rejectionReason}
-            </p>
-          )}
-        </div>
+        <p className="text-[11px] text-muted-foreground">
+          {t("myReg.submittedOn", { date: formatDate(item.createdAt, locale) })}
+          {item.decidedAt
+            ? ` · ${t("myReg.decidedOn", { date: formatDate(item.decidedAt, locale) })}`
+            : ""}
+        </p>
       }
       actions={actions}
     />
