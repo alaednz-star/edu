@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useAuth } from "@/hooks/use-auth";
 import { useGroups, useMyRegistrations } from "@/features/school/queries";
 import { useStudentStream } from "@/features/school/streams";
 import { groupMatchesStream } from "@/features/school/streams";
@@ -18,8 +19,28 @@ export interface EligibleGroup {
   group: GroupRow;
   /** Existing decision on this group, if the student already applied. */
   registrationStatus: RegistrationStatus | null;
+  /** The row id, so a pending request can be withdrawn from the card. */
+  registrationId: string | null;
+  /** The administration's note on a decision. Null unless one was written. */
+  rejectionReason: string | null;
   seatsLeft: number;
   isFull: boolean;
+  /**
+   * Whether the seat figures above mean anything to THIS caller.
+   *
+   * `group.enrolled` is counted from the `registrations` rows the browser could read, and
+   * `registrations read` restricts a student to their own. So a student reading this hook
+   * gets `enrolled = 0` for every group -- verified against the local stack: a group with
+   * 8 of 10 seats taken reports 0 both through `registrations` and through the
+   * `group_enrollment_counts` view, which is `security_invoker` and therefore inherits the
+   * same policy.
+   *
+   * The number is not "approximate", it is unavailable. Rather than render 0/20 as though
+   * it were measured, callers must check this flag and show capacity instead of occupancy.
+   * Making it available means adding one aggregate server object; see
+   * `docs/enrollment-seat-counts.md`.
+   */
+  seatsKnown: boolean;
   /** `null` means the Register button should be shown. */
   blockedBy: GroupBlockReason | null;
 }
@@ -34,15 +55,21 @@ export interface EligibleGroup {
  * from `groupMatchesStream`, shared with the rest of the app.
  */
 export function useEligibleGroups(studentId: string | undefined) {
+  const { user } = useAuth();
   const groupsQuery = useGroups();
   const registrationsQuery = useMyRegistrations(studentId);
   const identityQuery = useStudentStream(studentId);
+
+  // Staff read every registration, so their counts are real. A student reads only their
+  // own, so theirs are not. This is the caller's authorisation, not a feature flag.
+  const seatsKnown = user?.role === "admin" || user?.role === "teacher";
 
   const items = useMemo<EligibleGroup[]>(() => {
     const identity = identityQuery.data;
     if (!identity?.levelId) return [];
 
     const decisions = new Map<string, RegistrationStatus>();
+    const rows = new Map<string, { id: string; note: string | null }>();
     // Which (subject, level) pairs the student already occupies, and in which
     // group. Mirrors the database rule: one active enrolment per subject+level.
     const takenSubjects = new Map<string, string>();
@@ -50,6 +77,7 @@ export function useEligibleGroups(studentId: string | undefined) {
     const allGroups = groupsQuery.data ?? [];
     for (const r of registrationsQuery.data ?? []) {
       decisions.set(r.group_id, r.status as RegistrationStatus);
+      rows.set(r.group_id, { id: r.id, note: r.note ?? null });
       if (r.status !== "pending" && r.status !== "approved") continue;
       const g = allGroups.find((x) => x.id === r.group_id);
       if (g?.subjectId && g.levelId) {
@@ -66,7 +94,10 @@ export function useEligibleGroups(studentId: string | undefined) {
       )
       .map((group) => {
         const seatsLeft = Math.max(0, group.maxStudents - group.enrolled);
-        const isFull = group.maxStudents > 0 && seatsLeft === 0;
+        // `full` must not be asserted from a count we could not read: for a student
+        // `enrolled` is always 0, so this would be permanently false anyway -- being
+        // explicit stops a future reader from trusting it.
+        const isFull = seatsKnown && group.maxStudents > 0 && seatsLeft === 0;
         const registrationStatus = decisions.get(group.id) ?? null;
 
         // Already holds this subject+level in another group?
@@ -82,10 +113,21 @@ export function useEligibleGroups(studentId: string | undefined) {
         const blockedBy: GroupBlockReason | null =
           registrationStatus ?? (takenElsewhere ? "takenSubject" : isFull ? "full" : null);
 
-        return { group, registrationStatus, seatsLeft, isFull, blockedBy };
+        const row = rows.get(group.id);
+        return {
+          group,
+          registrationStatus,
+          registrationId: row?.id ?? null,
+          // Only meaningful on a rejection; the note is the administration's words.
+          rejectionReason: registrationStatus === "rejected" ? (row?.note ?? null) : null,
+          seatsLeft,
+          isFull,
+          seatsKnown,
+          blockedBy,
+        };
       })
       .sort((a, b) => a.group.name.localeCompare(b.group.name));
-  }, [groupsQuery.data, registrationsQuery.data, identityQuery.data]);
+  }, [groupsQuery.data, registrationsQuery.data, identityQuery.data, seatsKnown]);
 
   return {
     items,

@@ -28,6 +28,9 @@ function toGroupRow(r: MyRegistration): GroupRow {
     subjectName: r.subjectName,
     subjectColor: r.subjectColor,
     teacherId: null,
+    // This adapter feeds the recurrence engine, which reads dates and schedules only.
+    // The photo is display data and has no meaning here.
+    teacherAvatarUrl: null,
     teacherName: r.teacherName,
     levelId: null,
     levelName: r.levelName,

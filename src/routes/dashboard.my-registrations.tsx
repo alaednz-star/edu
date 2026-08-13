@@ -1,17 +1,29 @@
 import { useMemo, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { CalendarDays, ClipboardList, Search } from "lucide-react";
+import { CalendarDays, ClipboardList, Loader2, Search } from "lucide-react";
 import { PageHeader } from "@/components/common/page-header";
 import { EmptyState } from "@/components/common/empty-state";
 import { ErrorState } from "@/components/common/error-state";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { RequireAuth } from "@/features/auth/require-auth";
 import { RegistrationCard } from "@/features/school/components/registration-card";
-import { useMyRegistrationCards } from "@/features/school/my-registrations";
+import { useMyRegistrationCards, type MyRegistration } from "@/features/school/my-registrations";
+import { useCancelRegistration } from "@/features/school/queries";
 import type { RegistrationStatus } from "@/features/school/types";
 import { useAuth } from "@/hooks/use-auth";
 import { useI18n } from "@/hooks/use-i18n";
+import { useActionFeedback } from "@/hooks/use-action-feedback";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/dashboard/my-registrations")({
@@ -41,8 +53,29 @@ const TAB_LABEL_KEYS: Record<Tab, string> = {
 function MyRegistrationsPage() {
   const { t } = useI18n();
   const { user } = useAuth();
+  const { notifySuccess, notifyError } = useActionFeedback();
   const { items, isLoading, isFetching, error, refetch } = useMyRegistrationCards(user?.id);
+  const cancel = useCancelRegistration();
   const [tab, setTab] = useState<Tab>("all");
+  const [withdrawing, setWithdrawing] = useState<MyRegistration | null>(null);
+
+  /**
+   * Withdraws a request the administration has not decided yet.
+   *
+   * A DELETE: `registration_status` has no `cancelled` value, and the row's own delete
+   * policy already allows `student_id = auth.uid()`. Removing it also frees the
+   * (student, group) pair, so the student can apply again -- which a tombstone would block.
+   */
+  const withdraw = async (item: MyRegistration) => {
+    if (!user) return;
+    try {
+      await cancel.mutateAsync({ id: item.id, studentId: user.id });
+      setWithdrawing(null);
+      notifySuccess("dash.registration.withdrawn");
+    } catch (e) {
+      notifyError(e);
+    }
+  };
 
   const counts = useMemo(
     () => ({
@@ -151,11 +184,48 @@ function MyRegistrationsPage() {
             <RegistrationCard
               key={item.id}
               item={item}
-              actions={<CardActions status={item.status} />}
+              actions={<CardActions status={item.status} onWithdraw={() => setWithdrawing(item)} />}
             />
           ))}
         </div>
       )}
+
+      <AlertDialog
+        open={withdrawing !== null}
+        onOpenChange={(v) => {
+          if (cancel.isPending) return;
+          if (!v) setWithdrawing(null);
+        }}
+      >
+        <AlertDialogContent className="rounded-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-start">
+              {t("dash.registration.withdrawTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-start">
+              {t("dash.registration.withdrawBody", { group: withdrawing?.groupName ?? "" })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="h-11 rounded-xl" disabled={cancel.isPending}>
+              {t("ui.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="h-11 rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(e) => {
+                // Radix closes on click; keep it open so the pending state is visible and
+                // a second click cannot fire a second DELETE.
+                e.preventDefault();
+                if (withdrawing) void withdraw(withdrawing);
+              }}
+              disabled={cancel.isPending}
+            >
+              {cancel.isPending && <Loader2 className="size-4 animate-spin" aria-hidden />}
+              {t("dash.registration.withdrawConfirm")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
@@ -163,11 +233,17 @@ function MyRegistrationsPage() {
 /**
  * What the student can do next, by status.
  *
- * A pending request deliberately offers no action -- there is nothing useful to
- * click while the administration reviews it, and a dead button would be worse
- * than none.
+ * Pending used to offer nothing. It now offers the one thing that is genuinely available
+ * while the administration reviews: withdrawing the request. Changing your mind before a
+ * decision is a real need, and the alternative was emailing the centre.
  */
-function CardActions({ status }: { status: RegistrationStatus }) {
+function CardActions({
+  status,
+  onWithdraw,
+}: {
+  status: RegistrationStatus;
+  onWithdraw: () => void;
+}) {
   const { t } = useI18n();
 
   if (status === "approved") {
@@ -192,5 +268,17 @@ function CardActions({ status }: { status: RegistrationStatus }) {
     );
   }
 
-  return <p className="text-center text-xs text-muted-foreground">{t("myReg.pendingHint")}</p>;
+  return (
+    <div className="space-y-2">
+      <p className="text-center text-xs text-muted-foreground">{t("myReg.pendingHint")}</p>
+      <Button
+        type="button"
+        variant="outline"
+        className="h-11 w-full rounded-xl text-muted-foreground hover:text-destructive"
+        onClick={onWithdraw}
+      >
+        {t("myReg.withdraw")}
+      </Button>
+    </div>
+  );
 }

@@ -18,6 +18,8 @@ export interface MyRegistration {
   subjectName: string | null;
   subjectColor: string | null;
   teacherName: string | null;
+  /** The teacher's photo, so the same face appears here as in the catalogue. */
+  teacherAvatarUrl: string | null;
   levelName: string | null;
   streamName: string | null;
   priceDzd: number;
@@ -25,6 +27,13 @@ export interface MyRegistration {
   schedules: ScheduleSlot[];
   /** True when the linked group is no longer visible to this student. */
   groupUnavailable: boolean;
+  /**
+   * The administration's note on the decision, shown on a rejection.
+   *
+   * Only surfaced for `rejected`: on a pending row it is an internal remark the student
+   * has no context for, and on an approved one it has nothing to explain.
+   */
+  rejectionReason: string | null;
 }
 
 /**
@@ -42,6 +51,7 @@ export function useMyRegistrationCards(studentId: string | undefined) {
 
   const items = useMemo<MyRegistration[]>(() => {
     const teacherName = new Map(teachers.map((t) => [t.id, t.fullName]));
+    const teacherPhoto = new Map(teachers.map((t) => [t.id, t.avatarUrl]));
 
     return (registrationsQuery.data ?? []).map((r) => {
       // `groups` can be null even though the registration exists: RLS hides
@@ -73,6 +83,8 @@ export function useMyRegistrationCards(studentId: string | undefined) {
         subjectName: group?.subjects?.name ?? null,
         subjectColor: group?.subjects?.color ?? null,
         teacherName: group?.teacher_id ? (teacherName.get(group.teacher_id) ?? null) : null,
+        teacherAvatarUrl: group?.teacher_id ? (teacherPhoto.get(group.teacher_id) ?? null) : null,
+        rejectionReason: r.status === "rejected" ? (r.note ?? null) : null,
         levelName: group?.levels?.name ?? null,
         streamName: streamNameOf(group?.stream_id),
         priceDzd: group?.price_dzd ?? 0,

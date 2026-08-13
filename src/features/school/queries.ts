@@ -332,10 +332,14 @@ export function useGroups() {
           .order("name"),
       );
       const [profiles, regs] = await Promise.all([
-        supabase.from("profiles").select("id, full_name"),
+        // `avatar_url` rides along on the lookup that was already fetching names, so
+        // showing a teacher's photo on every card costs no extra request -- and
+        // certainly no request per card.
+        supabase.from("profiles").select("id, full_name, avatar_url"),
         supabase.from("registrations").select("group_id, status"),
       ]);
       const names = new Map((profiles.data ?? []).map((p) => [p.id, p.full_name]));
+      const avatars = new Map((profiles.data ?? []).map((p) => [p.id, p.avatar_url]));
       const approved = (regs.data ?? []).filter((r) => r.status === "approved");
 
       return groups.map((g) => ({
@@ -347,6 +351,7 @@ export function useGroups() {
         subjectColor: g.subjects?.color ?? null,
         teacherId: g.teacher_id,
         teacherName: g.teacher_id ? (names.get(g.teacher_id) ?? null) : null,
+        teacherAvatarUrl: g.teacher_id ? (avatars.get(g.teacher_id) ?? null) : null,
         levelId: g.level_id,
         levelName: g.levels?.name ?? null,
         streamId: g.stream_id,
@@ -513,7 +518,9 @@ export function useMyRegistrations(studentId: string | undefined) {
         await supabase
           .from("registrations")
           .select(
-            "id, status, created_at, decided_at, group_id, groups(name, price_dzd, max_students, stream_id, start_date, end_date, subjects(key, name, color), levels(name), group_schedules(id, weekday, start_time, end_time, room), teacher_id)",
+            // `note` is the administration's reason for a decision -- shown to the
+            // student on a rejected request rather than left in the table.
+            "id, status, note, created_at, decided_at, group_id, groups(name, price_dzd, max_students, stream_id, start_date, end_date, subjects(key, name, color), levels(name), group_schedules(id, weekday, start_time, end_time, room), teacher_id)",
           )
           .eq("student_id", studentId as string)
           .order("created_at", { ascending: false }),
@@ -540,6 +547,32 @@ export function useCreateRegistration() {
     onSuccess: (_d, vars) => {
       void qc.invalidateQueries({ queryKey: schoolKeys.myRegistrations(vars.studentId) });
       void qc.invalidateQueries({ queryKey: schoolKeys.registrations });
+    },
+  });
+}
+
+/**
+ * Withdraws the student's own request.
+ *
+ * A DELETE rather than a status change, because that is what the schema supports: the
+ * `registrations delete` policy already allows `student_id = auth.uid()`, and there is
+ * no `cancelled` value in `registration_status` (pending / approved / rejected). RLS is
+ * the gate -- a student cannot remove anyone else's row, and this needs no new policy.
+ *
+ * Deleting also frees the (student, group) unique pair, which is what lets a student
+ * apply again later. A soft "cancelled" state would keep occupying it.
+ */
+export function useCancelRegistration() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id }: { id: string; studentId: string }) => {
+      const { error } = await supabase.from("registrations").delete().eq("id", id);
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: (_d, vars) => {
+      void qc.invalidateQueries({ queryKey: schoolKeys.myRegistrations(vars.studentId) });
+      void qc.invalidateQueries({ queryKey: schoolKeys.registrations });
+      void qc.invalidateQueries({ queryKey: schoolKeys.groups });
     },
   });
 }

@@ -79,6 +79,11 @@ export interface GroupRow {
   subjectColor: string | null;
   teacherId: string | null;
   teacherName: string | null;
+  /**
+   * The teacher's photo, from `profiles.avatar_url`. Read through the group's teacher
+   * relationship -- never copied onto `groups` -- so there is one place a photo lives.
+   */
+  teacherAvatarUrl: string | null;
   levelId: string | null;
   levelName: string | null;
   /** NULL means the group is open to every stream of its level. */
