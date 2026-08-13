@@ -6,7 +6,7 @@ import { StatCard } from "@/components/common/stat-card";
 import { StatusBadge } from "@/components/common/status-badge";
 import { EmptyState } from "@/components/common/empty-state";
 import { ErrorState } from "@/components/common/error-state";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { PersonAvatar } from "@/features/profile/person-avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -15,7 +15,6 @@ import { RequireAuth } from "@/features/auth/require-auth";
 import { useGroups, useTeachers } from "@/features/school/queries";
 import { weeklySessions, weekdayLabel } from "@/features/school/schedule";
 import { useI18n } from "@/hooks/use-i18n";
-import { initialsOf } from "@/lib/format";
 
 export const Route = createFileRoute("/dashboard/teachers/$teacherId")({
   head: () => ({ meta: [{ title: "Fiche enseignant — Madrasti" }] }),
@@ -88,12 +87,12 @@ function TeacherDetailPage() {
 
       <SectionCard title={t("teacher.identityTitle")} description={t("teacher.identityDesc")}>
         <div className="flex flex-col gap-6 sm:flex-row sm:items-start">
-          <Avatar className="size-20 shrink-0">
-            {teacher.avatarUrl ? <AvatarImage src={teacher.avatarUrl} alt="" /> : null}
-            <AvatarFallback className="bg-primary-soft text-lg font-semibold text-primary">
-              {initialsOf(teacher.fullName)}
-            </AvatarFallback>
-          </Avatar>
+          <PersonAvatar
+            name={teacher.fullName}
+            url={teacher.avatarUrl}
+            accent="var(--color-accent)"
+            className="size-20 shrink-0 text-lg"
+          />
 
           <div className="min-w-0 flex-1 space-y-4">
             <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

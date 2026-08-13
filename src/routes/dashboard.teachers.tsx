@@ -6,7 +6,7 @@ import { PageHeader } from "@/components/common/page-header";
 import { DataTable, type Column } from "@/components/common/data-table";
 import { StatusBadge } from "@/components/common/status-badge";
 import { EmptyState } from "@/components/common/empty-state";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { PersonAvatar } from "@/features/profile/person-avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -33,7 +33,6 @@ import type { EntityStatus, TeacherRow } from "@/features/school/types";
 import { exportCsv } from "@/lib/export-csv";
 import { useI18n } from "@/hooks/use-i18n";
 import { useActionFeedback } from "@/hooks/use-action-feedback";
-import { initialsOf } from "@/lib/format";
 import { currentAccessToken } from "@/integrations/supabase/access-token";
 import { CreateTeacherDialog } from "@/features/teachers/components/create-teacher-dialog";
 import {
@@ -254,12 +253,12 @@ function TeachersPage() {
       sortValue: (r) => r.fullName,
       cell: (r) => (
         <div className="flex items-center gap-3">
-          <Avatar className="size-9">
-            {r.avatarUrl ? <AvatarImage src={r.avatarUrl} alt="" /> : null}
-            <AvatarFallback className="bg-accent-soft text-xs font-semibold text-accent">
-              {initialsOf(r.fullName)}
-            </AvatarFallback>
-          </Avatar>
+          <PersonAvatar
+            name={r.fullName}
+            url={r.avatarUrl}
+            accent="var(--color-accent)"
+            className="size-9 text-xs"
+          />
           <div className="min-w-0">
             <Link
               to="/dashboard/teachers/$teacherId"

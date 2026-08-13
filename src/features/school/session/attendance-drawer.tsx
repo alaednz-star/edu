@@ -17,7 +17,7 @@ import { useCallback, useEffect, useMemo, useState, type KeyboardEvent } from "r
 import { Link } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight, Loader2, RotateCcw, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { PersonAvatar } from "@/features/profile/person-avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useAuth } from "@/hooks/use-auth";
@@ -29,7 +29,7 @@ import { useSaveSessionAttendance, useSessionRoster } from "./use-session-attend
 import { buildKeyMap, nextRow, targetRow } from "./keyboard";
 import { subjectTint } from "./subject-tint";
 import type { SessionInstance } from "./types";
-import { formatDate, initialsOf } from "@/lib/format";
+import { formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 const STATUSES: AttendanceStatus[] = ["present", "absent", "late", "excused"];
@@ -431,12 +431,11 @@ export function AttendanceDrawer({ session, window: win, onClose, onNavigate, qu
                           )}
                           aria-current={i === focusRow ? "true" : undefined}
                         >
-                          <Avatar className="size-9 shrink-0">
-                            {r.avatarUrl && <AvatarImage src={r.avatarUrl} alt="" />}
-                            <AvatarFallback className="text-xs">
-                              {initialsOf(r.fullName)}
-                            </AvatarFallback>
-                          </Avatar>
+                          <PersonAvatar
+                            name={r.fullName}
+                            url={r.avatarUrl}
+                            className="size-9 shrink-0 text-xs"
+                          />
                           <span className="flex min-w-0 flex-1 items-center gap-1.5">
                             <span className="min-w-0 truncate text-sm font-medium">
                               {r.fullName}

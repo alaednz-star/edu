@@ -17,7 +17,7 @@ import { EmptyState } from "@/components/common/empty-state";
 import { ErrorState } from "@/components/common/error-state";
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
 import { AttendanceBreakdown } from "@/features/school/components/attendance-breakdown";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { PersonAvatar } from "@/features/profile/person-avatar";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -33,7 +33,7 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { useI18n } from "@/hooks/use-i18n";
 import { useActionFeedback } from "@/hooks/use-action-feedback";
-import { formatDate, initialsOf } from "@/lib/format";
+import { formatDate } from "@/lib/format";
 import { weekdayLabel } from "@/features/school/schedule";
 
 export const Route = createFileRoute("/dashboard/students/$studentId")({
@@ -144,12 +144,12 @@ function StudentDetailPage() {
 
       <SectionCard title={t("student.identityTitle")} description={t("student.identityDesc")}>
         <div className="flex flex-col gap-6 sm:flex-row sm:items-start">
-          <Avatar className="size-20 shrink-0">
-            {student.avatarUrl ? <AvatarImage src={student.avatarUrl} alt="" /> : null}
-            <AvatarFallback className="bg-primary-soft text-lg font-semibold text-primary">
-              {initialsOf(student.fullName)}
-            </AvatarFallback>
-          </Avatar>
+          <PersonAvatar
+            name={student.fullName}
+            url={student.avatarUrl}
+            accent="var(--color-primary)"
+            className="size-20 shrink-0 text-lg"
+          />
           <dl className="grid flex-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <Field label={t("student.email")} value={student.email ?? "—"} />
             <Field label={t("student.phone")} value={student.phone ?? "—"} />

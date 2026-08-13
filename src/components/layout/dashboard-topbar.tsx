@@ -2,7 +2,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { LogOut, UserRound } from "lucide-react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { PersonAvatar } from "@/features/profile/person-avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,7 +16,6 @@ import { GlobalSearch } from "@/components/layout/global-search";
 import { NotificationBell } from "@/components/layout/notification-bell";
 import { useAuth } from "@/hooks/use-auth";
 import { useI18n } from "@/hooks/use-i18n";
-import { initialsOf } from "@/lib/format";
 
 export function DashboardTopbar() {
   const { t } = useI18n();
@@ -42,11 +41,12 @@ export function DashboardTopbar() {
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" className="h-10 gap-2 rounded-xl px-2">
-              <Avatar className="size-8">
-                <AvatarFallback className="bg-primary-soft text-xs font-semibold text-primary">
-                  {initialsOf(user?.fullName ?? "?")}
-                </AvatarFallback>
-              </Avatar>
+              <PersonAvatar
+                name={user?.fullName}
+                url={user?.avatarUrl}
+                accent="var(--color-primary)"
+                className="size-8 text-xs"
+              />
               <span className="hidden text-sm font-medium sm:inline">{user?.fullName}</span>
             </Button>
           </DropdownMenuTrigger>
